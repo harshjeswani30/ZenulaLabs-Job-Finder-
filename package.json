@@ -1,0 +1,10 @@
+{
+  "name": "job-finder",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "worker": "npm run dev -w apps/worker",
+    "web": "npm run dev -w apps/web",
+    "test": "npm run test -w apps/worker"
+  }
+}

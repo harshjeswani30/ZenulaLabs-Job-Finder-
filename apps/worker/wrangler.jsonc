@@ -1,0 +1,11 @@
+{
+  "name": "jobfinder-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "jobfinder-db", "database_id": "PLACEHOLDER_CREATE_VIA_WRANGLER" }
+  ],
+  "vars": { "SCORE_THRESHOLD_DEFAULT": "70", "MAX_SOURCES_PER_RUN": "20" }
+}
