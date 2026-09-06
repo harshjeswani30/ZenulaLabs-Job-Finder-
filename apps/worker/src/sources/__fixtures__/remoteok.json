@@ -1,0 +1,27 @@
+[
+  {
+    "legal": "All jobs on RemoteOK are for informational use. By using this API you agree to the terms at remoteok.com/legal."
+  },
+  {
+    "slug": "senior-react-engineer-1",
+    "position": "Senior React Engineer",
+    "company": "Acme",
+    "location": "Worldwide",
+    "salary_min": 80000,
+    "salary_max": 120000,
+    "url": "https://remoteok.com/remote-jobs/senior-react-engineer-1",
+    "date": "2026-09-01T10:00:00Z",
+    "description": "<p>Ship React features fast.</p>"
+  },
+  {
+    "slug": "backend-node-developer-2",
+    "position": "Backend Node Developer",
+    "company": "Beta",
+    "location": "Remote",
+    "salary_min": 70000,
+    "salary_max": 100000,
+    "url": "https://remoteok.com/remote-jobs/backend-node-developer-2",
+    "date": "2026-09-02T12:00:00Z",
+    "description": "<p>Scale Node services.</p>"
+  }
+]

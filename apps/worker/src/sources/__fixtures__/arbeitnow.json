@@ -1,0 +1,28 @@
+{
+  "data": [
+    {
+      "slug": "senior-react-developer-4815",
+      "company_name": "Bits & Pretzels",
+      "title": "Senior React Developer",
+      "description": "<p>Own our React front-end.</p>",
+      "remote": true,
+      "url": "https://www.arbeitnow.com/view/senior-react-developer-4815",
+      "tags": ["react", "typescript"],
+      "job_types": ["full_time"],
+      "location": "Berlin",
+      "created_at": 1725148800
+    },
+    {
+      "slug": "qa-engineer-4816",
+      "company_name": "Werkstatt GmbH",
+      "title": "QA Engineer",
+      "description": "<p>Test automation for web apps.</p>",
+      "remote": false,
+      "url": "https://www.arbeitnow.com/view/qa-engineer-4816",
+      "tags": ["testing"],
+      "job_types": ["full_time"],
+      "location": "Munich",
+      "created_at": 1725235200
+    }
+  ]
+}

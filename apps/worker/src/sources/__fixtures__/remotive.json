@@ -1,0 +1,28 @@
+{
+  "jobs": [
+    {
+      "id": "481526",
+      "url": "https://remotive.com/remote-jobs/software-dev/senior-react-engineer",
+      "title": "Senior React Engineer",
+      "company_name": "Acme Corp",
+      "category": "Software Development",
+      "job_type": "full_time",
+      "candidate_required_location": "Worldwide",
+      "salary": "$90k - $120k",
+      "publication_date": "2026-09-01T10:00:00Z",
+      "description": "<p>Build delightful UIs with React and TypeScript.</p>"
+    },
+    {
+      "id": "481527",
+      "url": "https://remotive.com/remote-jobs/software-dev/backend-node-developer",
+      "title": "Backend Node Developer",
+      "company_name": "Beta LLC",
+      "category": "Software Development",
+      "job_type": "full_time",
+      "candidate_required_location": "Europe",
+      "salary": "",
+      "publication_date": "2026-09-02T12:30:00Z",
+      "description": "<p>Design resilient APIs with Node.js.</p>"
+    }
+  ]
+}
