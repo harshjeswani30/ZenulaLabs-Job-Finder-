@@ -14,10 +14,11 @@ function decodeBase64(b64: string): string {
 
 export const parseGreenhouse: SourceParser = async (spec, fetchFn): Promise<NormalizedJob[]> => {
   if (!spec.slug) throw new Error("greenhouse: slug required");
-  const body = (await fetchJson(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(spec.slug)}/jobs?content=true`, fetchFn)) as { jobs?: GhJob[] };
+  const slug: string = spec.slug;
+  const body = (await fetchJson(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/jobs?content=true`, fetchFn)) as { jobs?: GhJob[] };
   return Promise.all((body.jobs ?? []).map((j) =>
-    buildJob(`greenhouse:${spec.slug}`, {
-      title: j.title, company: spec.slug, url: j.absolute_url,
+    buildJob(`greenhouse:${slug}`, {
+      title: j.title, company: slug, url: j.absolute_url,
       location: j.location?.name, postedAt: j.updated_at ? new Date(j.updated_at).getTime() : null,
       description: j.content ? decodeBase64(j.content) : "",
     })));
