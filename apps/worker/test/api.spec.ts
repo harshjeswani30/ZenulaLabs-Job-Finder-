@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SELF, createExecutionContext, env } from "cloudflare:test";
 import worker from "../src/index";
 
@@ -42,5 +42,54 @@ describe("api", () => {
     await worker.scheduled({ cron: "*/10 * * * *" } as ScheduledEvent, env, ctx);
     const row = await env.DB.prepare(`SELECT next_run_at FROM configs WHERE user_id='owner'`).first<{ next_run_at: number }>();
     expect(row!.next_run_at).toBeGreaterThan(0);
+  });
+
+  it("telegram-test rejects without internal token", async () => {
+    const res = await SELF.fetch("https://example.com/telegram-test", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chatId: "12345" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("telegram-test sends a message via the bot api", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
+    );
+    try {
+      const res = await SELF.fetch("https://example.com/telegram-test", {
+        method: "POST",
+        headers: H,
+        body: JSON.stringify({ chatId: "12345" }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toContain("api.telegram.org/bottest/sendMessage");
+      expect(String(init.body)).toContain('"chat_id":"12345"');
+      expect(String(init.body)).toContain("connected");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("telegram-test surfaces bot api errors", async () => {
+    // Telegram returns HTTP 400 + {ok:false,description} for bad chat ids.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, description: "chat not found" }), { status: 400 })
+    );
+    try {
+      const res = await SELF.fetch("https://example.com/telegram-test", {
+        method: "POST",
+        headers: H,
+        body: JSON.stringify({ chatId: "999" }),
+      });
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toContain("Telegram error");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

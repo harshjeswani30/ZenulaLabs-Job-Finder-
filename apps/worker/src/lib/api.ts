@@ -55,5 +55,19 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
     return Response.json(result);
   }
 
+  if (path === "/telegram-test" && req.method === "POST") {
+    const { chatId } = (await req.json()) as { chatId: string };
+    if (!chatId || typeof chatId !== "string") {
+      return Response.json({ error: "chatId required" }, { status: 400 });
+    }
+    const { sendTelegramMessage } = await import("./telegram");
+    try {
+      await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, chatId, "✅ Job Finder connected!", fetch);
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : "telegram send failed" }, { status: 500 });
+    }
+    return Response.json({ ok: true });
+  }
+
   return Response.json({ error: "not found" }, { status: 404 });
 }
