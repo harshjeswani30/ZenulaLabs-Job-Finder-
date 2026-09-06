@@ -1,0 +1,18 @@
+{
+  "jobs": [
+    {
+      "title": "Software Engineer",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/123",
+      "location": { "name": "Remote" },
+      "updated_at": "2026-09-01T10:00:00Z",
+      "content": "PGh0bWw+Um9sZSBhdCBBY21lPC9odG1sPg=="
+    },
+    {
+      "title": "Staff Software Engineer",
+      "absolute_url": "https://boards.greenhouse.io/acme/jobs/124",
+      "location": { "name": "New York" },
+      "updated_at": "2026-09-02T11:00:00Z",
+      "content": "PGh0bWw+U2Vjb25kIFJvbGUgYXQgQWNtZTwvaHRtbD4="
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "text": "Frontend Engineer",
+    "categories": { "location": "Remote", "commitment": "Full-time" },
+    "hostedUrl": "https://jobs.lever.co/acme/abc",
+    "createdAt": 1725148800000,
+    "descriptionPlain": "Build UIs"
+  },
+  {
+    "text": "Platform Engineer",
+    "categories": { "location": "San Francisco", "commitment": "Full-time" },
+    "hostedUrl": "https://jobs.lever.co/acme/def",
+    "createdAt": 1725235200000,
+    "descriptionPlain": "Run infrastructure"
+  }
+]
