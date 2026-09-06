@@ -1,6 +1,7 @@
 import { SELF, createExecutionContext, env } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
 import worker from "../src/index";
+import type { Env } from "../src/env";
 
 describe("worker", () => {
   it("responds to /health", async () => {
@@ -11,7 +12,7 @@ describe("worker", () => {
 
   it("scheduled handler runs without error", async () => {
     const ctx = createExecutionContext();
-    await worker.scheduled({ cron: "*/10 * * * *" } as ScheduledEvent, env, ctx);
+    await worker.scheduled({ cron: "*/10 * * * *" } as ScheduledEvent, env as unknown as Env, ctx);
     expect(true).toBe(true);
   });
 });

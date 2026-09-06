@@ -1,3 +1,5 @@
+import type { Env } from "./env";
+
 export default {
   async fetch(_req: Request, _env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(_req.url);
