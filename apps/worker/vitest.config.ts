@@ -12,7 +12,13 @@ export default defineWorkersConfig(async () => {
           main: "./src/index.ts",
           miniflare: {
             d1Databases: ["DB"],
-            bindings: { TEST_MIGRATIONS: migrations },
+            bindings: {
+              TEST_MIGRATIONS: migrations,
+              INTERNAL_TOKEN: "test-token",
+              ANTHROPIC_API_KEY: "test",
+              TELEGRAM_BOT_TOKEN: "test",
+              SELF_URL: "http://localhost:8787",
+            },
           },
         },
       },

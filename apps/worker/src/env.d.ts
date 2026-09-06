@@ -5,4 +5,5 @@ export interface Env {
   INTERNAL_TOKEN: string;
   SCORE_THRESHOLD_DEFAULT: string;
   MAX_SOURCES_PER_RUN: string;
+  SELF_URL: string;
 }

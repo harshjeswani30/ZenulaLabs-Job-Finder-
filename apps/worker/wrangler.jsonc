@@ -7,5 +7,5 @@
   "d1_databases": [
     { "binding": "DB", "database_name": "jobfinder-db", "database_id": "PLACEHOLDER_CREATE_VIA_WRANGLER" }
   ],
-  "vars": { "SCORE_THRESHOLD_DEFAULT": "70", "MAX_SOURCES_PER_RUN": "20" }
+  "vars": { "SCORE_THRESHOLD_DEFAULT": "70", "MAX_SOURCES_PER_RUN": "20", "SELF_URL": "PLACEHOLDER_SET_AFTER_FIRST_DEPLOY" }
 }
