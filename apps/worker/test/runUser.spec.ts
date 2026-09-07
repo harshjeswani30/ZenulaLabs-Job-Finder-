@@ -49,4 +49,34 @@ describe("runUser", () => {
     const result = await runUser({ db, env: { ANTHROPIC_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn: badSource });
     expect(result.status).toBe("partial");
   });
+
+  it("handles >9 jobs without hitting D1's 100-bind limit", async () => {
+    // Regression: bulk inserts used 40-row chunks (10 cols × 40 = 400 binds) — D1 caps at 100.
+    // 25 unique jobs force both the jobs insert (10 binds/row) and user_jobs insert (5 binds/row) to chunk.
+    const fetchFn = vi.fn().mockImplementation((url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("remotive")) {
+        const jobs = Array.from({ length: 25 }, (_, i) => ({
+          url: `https://x.co/${i}`, title: `React Dev ${i}`, company_name: "Acme",
+          candidate_required_location: "Remote", salary: "", publication_date: "2026-09-01T10:00:00Z", description: "<p>Great</p>",
+        }));
+        return Promise.resolve(new Response(JSON.stringify({ jobs }), { status: 200 }));
+      }
+      // Claude scoring call — body arrives in the RequestInit (second arg)
+      if (u.includes("anthropic")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        const wanted = JSON.parse(body.messages?.[0]?.content ?? "{}") as { jobs: { hash: string }[] };
+        return Promise.resolve(new Response(JSON.stringify({
+          content: [{ type: "text", text: JSON.stringify(wanted.jobs.map((j: { hash: string }) => ({ hash: j.hash, score: 85 }))) }],
+        }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    }) as unknown as typeof fetch;
+
+    const result = await runUser({ db, env: { ANTHROPIC_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+    expect(result.status).toBe("ok");
+    expect(result.jobsSent).toBe(25); // all 25 scored 85 ≥ 70, chunkForSending caps at 30 → all sent
+    const scored = await db.prepare(`SELECT COUNT(*) n FROM user_jobs WHERE score = 85`).first<{ n: number }>();
+    expect(scored!.n).toBe(25);
+  });
 });

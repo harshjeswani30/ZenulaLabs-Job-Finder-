@@ -57,9 +57,11 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
   const jobs = [...unique.values()];
 
   if (jobs.length > 0) {
+    // D1 caps bound parameters per statement at 100 — chunk multi-row inserts below it.
+    const jobsPerStmt = Math.floor(90 / 10); // 10 columns → 9 rows (90 params)
     const stmts = [];
-    for (let i = 0; i < jobs.length; i += 40) {
-      const chunk = jobs.slice(i, i + 40);
+    for (let i = 0; i < jobs.length; i += jobsPerStmt) {
+      const chunk = jobs.slice(i, i + jobsPerStmt);
       const values = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
       const binds = chunk.flatMap((j) => [j.hash, j.title, j.company, j.location, j.salary, j.url, j.source, j.descriptionSnippet, j.postedAt, now]);
       stmts.push(deps.db.prepare(`INSERT OR IGNORE INTO jobs (hash, title, company, location, salary, url, source, description_snippet, posted_at, first_seen_at) VALUES ${values}`).bind(...binds));
@@ -78,9 +80,10 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
       const matches: ScoredJob[] = scored.filter((s) => s.score >= config.scoreThreshold).sort((a, b) => b.score - a.score);
 
       // record all unseen with scores (sent_at null unless sent)
+      const userJobsPerStmt = Math.floor(90 / 5); // 5 columns → 18 rows (90 params)
       const insStmts = [];
-      for (let i = 0; i < scored.length; i += 40) {
-        const chunk = scored.slice(i, i + 40);
+      for (let i = 0; i < scored.length; i += userJobsPerStmt) {
+        const chunk = scored.slice(i, i + userJobsPerStmt);
         const values = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
         const binds = chunk.flatMap((s) => [USER_ID, s.job.hash, now, null, s.score]);
         insStmts.push(deps.db.prepare(`INSERT INTO user_jobs (user_id, job_hash, first_seen_at, sent_at, score) VALUES ${values}`).bind(...binds));

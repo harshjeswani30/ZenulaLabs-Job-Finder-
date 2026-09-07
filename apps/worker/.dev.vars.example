@@ -1,0 +1,7 @@
+# Copy to `.dev.vars` (gitignored) and fill in real values for local `wrangler dev`.
+# NEVER commit `.dev.vars` — it holds real secrets.
+
+ANTHROPIC_API_KEY=
+TELEGRAM_BOT_TOKEN=
+INTERNAL_TOKEN=
+SELF_URL=http://localhost:8787
