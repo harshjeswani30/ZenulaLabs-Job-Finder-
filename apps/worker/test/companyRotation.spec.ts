@@ -27,12 +27,19 @@ describe("getRotatingSpecs", () => {
 });
 
 describe("defaultRotationSpecs", () => {
-  it("mixes greenhouse/lever/smartrecruiters up to count", () => {
+  it("default 20-run mix: GH 8 / SR 8 / Lever 4", () => {
+    const specs = defaultRotationSpecs(20);
+    expect(specs).toHaveLength(20);
+    expect(specs.filter((s) => s.type === "greenhouse")).toHaveLength(8);
+    expect(specs.filter((s) => s.type === "smartrecruiters")).toHaveLength(8);
+    expect(specs.filter((s) => s.type === "lever")).toHaveLength(4);
+  });
+  it("small counts still mix all three ATS types", () => {
     const specs = defaultRotationSpecs(6);
     expect(specs).toHaveLength(6);
-    expect(specs.filter((s) => s.type === "greenhouse")).toHaveLength(2);
-    expect(specs.filter((s) => s.type === "lever")).toHaveLength(2);
-    expect(specs.filter((s) => s.type === "smartrecruiters")).toHaveLength(2);
+    expect(specs.filter((s) => s.type === "greenhouse")).toHaveLength(3);
+    expect(specs.filter((s) => s.type === "smartrecruiters")).toHaveLength(3);
+    expect(specs.filter((s) => s.type === "lever")).toHaveLength(0); // 6-3-3 → 0
     expect(SMARTRECRUITERS_SLUGS.length).toBe(217);
   });
 });

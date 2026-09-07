@@ -103,9 +103,63 @@ describe("runUser", () => {
     }) as unknown as typeof fetch;
     const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
     expect(result.status).toBe("ok");
-    // 1 explicit remotive + 6 rotating boards (2 gh + 2 lever + 2 sr)
+    // 1 explicit remotive + 6 rotating boards (new 40/40/20 mix: 3 gh + 3 sr + 0 lever)
     const boardCalls = seen.filter((u) => u.includes("boards-api.greenhouse.io") || u.includes("api.lever.co") || u.includes("api.smartrecruiters.com"));
     expect(boardCalls).toHaveLength(6);
+    expect(seen.filter((u) => u.includes("remotive.com"))).toHaveLength(1);
+  });
+
+  it("rotateBoards count 20 → GH 8 / SR 8 / Lever 3 (cap leaves 19 slots after explicit remotive)", async () => {
+    await db.prepare(`UPDATE configs SET filters = ? WHERE user_id = 'owner'`).bind(
+      JSON.stringify({ rotateBoards: { enabled: true, count: 20 } })
+    ).run();
+    const seen: string[] = [];
+    const fetchFn = vi.fn().mockImplementation((url: string | URL | Request) => {
+      const u = String(url);
+      seen.push(u);
+      const gh = { jobs: [{ title: "React Dev", absolute_url: "https://x.co/1", location: { name: "Remote" }, updated_at: "2026-09-01T10:00:00Z", content: "" }] };
+      const lv = [{ text: "React Dev", hostedUrl: "https://x.co/2", categories: { location: "Remote" }, createdAt: 1725148800000, descriptionPlain: "Great" }];
+      const sr = { content: [{ id: "1", name: "React Dev", releasedDate: "2026-09-01T10:00:00Z", location: { fullLocation: "Remote" } }] };
+      const rem = { jobs: [{ url: "https://x.co/3", title: "React Dev", company_name: "Acme", candidate_required_location: "Remote", salary: "", publication_date: "2026-09-01T10:00:00Z", description: "<p>Great</p>" }] };
+      let body: unknown;
+      if (u.includes("greenhouse")) body = gh;
+      else if (u.includes("lever.co")) body = lv;
+      else if (u.includes("smartrecruiters")) body = sr;
+      else if (u.includes("remotive")) body = rem;
+      else body = { ok: true };
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    }) as unknown as typeof fetch;
+    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+    expect(result.status).toBe("ok");
+    expect(seen.filter((u) => u.includes("boards-api.greenhouse.io"))).toHaveLength(8);
+    expect(seen.filter((u) => u.includes("api.smartrecruiters.com"))).toHaveLength(8);
+    expect(seen.filter((u) => u.includes("api.lever.co"))).toHaveLength(3);
+  });
+
+  it("rotateBoards respects MAX_SOURCES_PER_RUN cap (explicit + rotation ≤ 20)", async () => {
+    await db.prepare(`UPDATE configs SET filters = ? WHERE user_id = 'owner'`).bind(
+      JSON.stringify({ rotateBoards: { enabled: true, count: 20 } })
+    ).run();
+    const seen: string[] = [];
+    const fetchFn = vi.fn().mockImplementation((url: string | URL | Request) => {
+      const u = String(url);
+      seen.push(u);
+      const gh = { jobs: [] };
+      const lv: unknown[] = [];
+      const sr = { content: [] };
+      const rem = { jobs: [] };
+      let body: unknown;
+      if (u.includes("greenhouse")) body = gh;
+      else if (u.includes("lever.co")) body = lv;
+      else if (u.includes("smartrecruiters")) body = sr;
+      else if (u.includes("remotive")) body = rem;
+      else body = { ok: true };
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    }) as unknown as typeof fetch;
+    // maxSources 20: 1 explicit remotive + 19 rotating
+    await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn, maxSources: 20 });
+    const boardCalls = seen.filter((u) => u.includes("boards-api.greenhouse.io") || u.includes("api.lever.co") || u.includes("api.smartrecruiters.com"));
+    expect(boardCalls).toHaveLength(19);
     expect(seen.filter((u) => u.includes("remotive.com"))).toHaveLength(1);
   });
 

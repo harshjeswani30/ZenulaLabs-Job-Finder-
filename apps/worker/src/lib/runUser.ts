@@ -43,7 +43,8 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
   const explicitSpecs = config.sites.slice(0, cap);
   let specs = explicitSpecs;
   if (filters?.rotateBoards?.enabled) {
-    const rotCount = Math.min(filters.rotateBoards.count ?? 6, cap - explicitSpecs.length);
+    // fill remaining slots with rotating catalog boards, capped at 20/run total
+    const rotCount = Math.min(filters.rotateBoards.count ?? 20, cap - explicitSpecs.length);
     if (rotCount > 0) specs = [...explicitSpecs, ...defaultRotationSpecs(rotCount)];
   }
   let sourcesOk = 0, sourcesFailed = 0;

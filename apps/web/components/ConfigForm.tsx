@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface SiteSpec {
-  type: "remotive" | "arbeitnow" | "remoteok" | "greenhouse" | "lever";
+  type:
+    | "remotive" | "arbeitnow" | "remoteok"
+    | "themuse" | "himalayas" | "jobicy" | "landingjobs"
+    | "weworkremotely" | "berlinstartupjobs"
+    | "greenhouse" | "lever" | "smartrecruiters";
   slug?: string;
 }
 
@@ -11,6 +15,7 @@ interface Config {
   fields: string[];
   skills: string[];
   sites: SiteSpec[];
+  filters: { rotateBoards?: { enabled?: boolean; count?: number } };
   scoreThreshold: number;
   cadenceHours: number;
   telegramChatId: string | null;
@@ -21,6 +26,12 @@ const SIMPLE_SITES: { type: SiteSpec["type"]; label: string }[] = [
   { type: "remotive", label: "Remotive" },
   { type: "arbeitnow", label: "Arbeitnow" },
   { type: "remoteok", label: "RemoteOK" },
+  { type: "themuse", label: "The Muse" },
+  { type: "himalayas", label: "Himalayas" },
+  { type: "jobicy", label: "Jobicy" },
+  { type: "landingjobs", label: "LandingJobs" },
+  { type: "weworkremotely", label: "We Work Remotely" },
+  { type: "berlinstartupjobs", label: "Berlin Startup Jobs" },
 ];
 
 const CADENCE_OPTIONS = [1, 2, 3, 6, 12, 24];
@@ -101,12 +112,14 @@ export default function ConfigForm() {
   const [fields, setFields] = useState<string[]>([]);
   const [skills, setSkills] = useState<string[]>([]);
   const [sites, setSites] = useState<SiteSpec[]>([]);
+  const [rotateBoards, setRotateBoards] = useState(false);
+  const [rotateCount, setRotateCount] = useState(20);
   const [scoreThreshold, setScoreThreshold] = useState(70);
   const [cadenceHours, setCadenceHours] = useState(1);
   const [chatId, setChatId] = useState("");
   const [isActive, setIsActive] = useState(true);
 
-  const [boardType, setBoardType] = useState<"greenhouse" | "lever">("greenhouse");
+  const [boardType, setBoardType] = useState<"greenhouse" | "lever" | "smartrecruiters">("greenhouse");
   const [boardSlug, setBoardSlug] = useState("");
 
   const [loading, setLoading] = useState(true);
@@ -131,6 +144,8 @@ export default function ConfigForm() {
       setFields(cfg.fields ?? []);
       setSkills(cfg.skills ?? []);
       setSites(cfg.sites ?? []);
+      setRotateBoards(cfg.filters?.rotateBoards?.enabled ?? false);
+      setRotateCount(cfg.filters?.rotateBoards?.count ?? 20);
       setScoreThreshold(cfg.scoreThreshold ?? 70);
       setCadenceHours(cfg.cadenceHours ?? 1);
       setChatId(cfg.telegramChatId ?? "");
@@ -232,7 +247,7 @@ export default function ConfigForm() {
           fields,
           skills,
           sites,
-          filters: {},
+          filters: { rotateBoards: { enabled: rotateBoards, count: rotateCount } },
           scoreThreshold,
           cadenceHours,
           isActive,
@@ -350,15 +365,16 @@ export default function ConfigForm() {
         </div>
 
         <div className="mt-4">
-          <p className="mb-2 text-sm font-medium">Company boards (Greenhouse / Lever)</p>
+          <p className="mb-2 text-sm font-medium">Company boards (Greenhouse / Lever / SmartRecruiters)</p>
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={boardType}
-              onChange={(e) => setBoardType(e.target.value as "greenhouse" | "lever")}
+              onChange={(e) => setBoardType(e.target.value as "greenhouse" | "lever" | "smartrecruiters")}
               className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-sm"
             >
               <option value="greenhouse">Greenhouse</option>
               <option value="lever">Lever</option>
+              <option value="smartrecruiters">SmartRecruiters</option>
             </select>
             <input
               type="text"
@@ -394,6 +410,38 @@ export default function ConfigForm() {
                 />
               ))}
           </div>
+        </div>
+
+        <div className="mt-4 rounded border border-neutral-200 bg-neutral-50 p-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={rotateBoards}
+              onChange={(e) => setRotateBoards(e.target.checked)}
+              className="h-4 w-4"
+            />
+            <span className="font-medium">Auto-rotate company boards</span>
+          </label>
+          <p className="mt-1 mb-2 text-sm text-neutral-500">
+            Har run me 1205-company catalog se alag companies check hoti he — poora catalog ~2.5 din me cover ho jata he
+          </p>
+          {rotateBoards && (
+            <div className="flex items-center gap-2 text-sm">
+              <label htmlFor="rotate-count" className="text-neutral-600">
+                Companies per run:
+              </label>
+              <input
+                id="rotate-count"
+                type="number"
+                min={1}
+                max={20}
+                value={rotateCount}
+                onChange={(e) => setRotateCount(Math.max(1, Math.min(20, Number(e.target.value))))}
+                className="w-20 rounded border border-neutral-300 bg-white px-2 py-1"
+              />
+              <span className="text-neutral-400">(1–20)</span>
+            </div>
+          )}
         </div>
       </section>
 
