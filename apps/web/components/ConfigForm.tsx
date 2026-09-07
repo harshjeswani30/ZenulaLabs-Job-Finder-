@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import BotConnect from "./BotConnect";
 
 interface SiteSpec {
   type:
@@ -235,7 +236,7 @@ export default function ConfigForm() {
     }
   };
 
-  const save = async () => {
+  const save = async (chatIdOverride?: string) => {
     setSaveState("saving");
     setSaveError(null);
     try {
@@ -251,7 +252,7 @@ export default function ConfigForm() {
           scoreThreshold,
           cadenceHours,
           isActive,
-          telegramChatId: chatId.trim() || null,
+          telegramChatId: chatIdOverride ?? (chatId.trim() || null),
         }),
       });
       const body = (await res.json()) as { ok?: boolean; error?: string };
@@ -480,36 +481,53 @@ export default function ConfigForm() {
 
       {/* Telegram */}
       <section>
-        <h3 className="mb-1 text-sm font-semibold">Telegram chat ID</h3>
+        <h3 className="mb-1 text-sm font-semibold">Telegram</h3>
         <p className="mb-2 text-sm text-neutral-500">
-          @userinfobot se apna chat ID lo, phir yahan paste karo
+          Connect karo — job matches seedha tumhare chat me aayenge
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="text"
-            value={chatId}
-            placeholder="e.g. 123456789"
-            onChange={(e) => setChatId(e.target.value)}
-            className="w-56 rounded border border-neutral-300 bg-white px-3 py-2 text-sm"
+        <div className="space-y-3">
+          <BotConnect
+            onLinked={(linkedChatId) => {
+              setChatId(linkedChatId);
+              // auto-save so the linked chat persists without extra clicks
+              void save(linkedChatId);
+            }}
           />
-          <button
-            type="button"
-            onClick={() => void sendTest()}
-            disabled={testState === "sending"}
-            className="rounded border border-neutral-400 px-3 py-1.5 text-sm hover:bg-neutral-100 disabled:opacity-50"
-          >
-            {testState === "sending" ? "Sending…" : "Send test"}
-          </button>
+          <details className="text-sm">
+            <summary className="cursor-pointer text-neutral-500">
+              Manual chat ID (agar bot button na chale)
+            </summary>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={chatId}
+                placeholder="e.g. 123456789"
+                onChange={(e) => setChatId(e.target.value)}
+                className="w-56 rounded border border-neutral-300 bg-white px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => void sendTest()}
+                disabled={testState === "sending"}
+                className="rounded border border-neutral-400 px-3 py-1.5 text-sm hover:bg-neutral-100 disabled:opacity-50"
+              >
+                {testState === "sending" ? "Sending…" : "Send test"}
+              </button>
+            </div>
+            <p className="mt-1 text-sm text-neutral-500">
+              @userinfobot se apna chat ID lo, phir yahan paste karo
+            </p>
+            {testMsg && (
+              <p
+                className={`mt-2 text-sm ${
+                  testState === "error" ? "text-red-600" : "text-green-700"
+                }`}
+              >
+                {testMsg}
+              </p>
+            )}
+          </details>
         </div>
-        {testMsg && (
-          <p
-            className={`mt-2 text-sm ${
-              testState === "error" ? "text-red-600" : "text-green-700"
-            }`}
-          >
-            {testMsg}
-          </p>
-        )}
       </section>
 
       {/* Active toggle */}

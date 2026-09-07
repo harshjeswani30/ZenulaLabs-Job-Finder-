@@ -5,7 +5,7 @@ import worker from "../src/index";
 const H = { "x-internal-token": env.INTERNAL_TOKEN, "content-type": "application/json" };
 
 beforeEach(async () => {
-  await env.DB.exec(`DELETE FROM configs; DELETE FROM jobs; DELETE FROM user_jobs; DELETE FROM runs;`);
+  await env.DB.exec(`DELETE FROM configs; DELETE FROM jobs; DELETE FROM user_jobs; DELETE FROM runs; DELETE FROM bot_links;`);
 });
 
 describe("api", () => {
@@ -19,9 +19,146 @@ describe("api", () => {
     expect(res.status).toBe(401);
   });
 
-  it("rejects run-batch without internal token", async () => {
+  it("run-batch rejects without internal token", async () => {
     const res = await SELF.fetch("https://example.com/run-batch", { method: "POST", body: JSON.stringify({}) });
     expect(res.status).toBe(401);
+  });
+
+  describe("bot connect flow", () => {
+    /** Mock for getMe + sendMessage — returns whatever Telegram-shaped body each call needs. */
+    function telegramMock() {
+      return vi.spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request) => {
+        const u = String(input);
+        if (u.includes("/getMe")) {
+          return new Response(JSON.stringify({ ok: true, result: { username: "zenulalabsbot" } }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      });
+    }
+
+    async function createLink(): Promise<{ token: string; link: string }> {
+      const res = await SELF.fetch("https://example.com/bot/connect", { method: "POST", headers: H });
+      expect(res.status).toBe(200);
+      return (await res.json()) as { token: string; link: string };
+    }
+
+    async function postStartUpdate(token: string | null, chatId: number, username?: string) {
+      const text = token === null ? "/start" : `/start ${token}`;
+      return SELF.fetch(`https://example.com/telegram/webhook/${env.INTERNAL_TOKEN}`, {
+        method: "POST",
+        body: JSON.stringify({ message: { text, chat: { id: chatId, username } } }),
+      });
+    }
+
+    it("connect start creates pending link and returns t.me deep link", async () => {
+      const spy = telegramMock();
+      try {
+        const { token, link } = await createLink();
+        expect(token).toHaveLength(32);
+        expect(link).toBe(`https://t.me/zenulalabsbot?start=${token}`);
+        const row = await env.DB.prepare(`SELECT status FROM bot_links WHERE token = ?`).bind(token).first<{ status: string }>();
+        expect(row!.status).toBe("pending");
+        const status = await SELF.fetch(`https://example.com/bot/status/${token}`, { headers: H });
+        expect(((await status.json()) as { status: string }).status).toBe("pending");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("START with token links chat, saves config chat id, confirms in chat", async () => {
+      const spy = telegramMock();
+      try {
+        await env.DB.prepare(`INSERT INTO configs (user_id, fields, skills, sites, filters, score_threshold, cadence_hours, is_active, next_run_at, telegram_chat_id, updated_at)
+          VALUES ('owner', '[]', '[]', '[]', '{}', 70, 1, 1, 0, NULL, 1)`).run();
+        const { token } = await createLink();
+        const res = await postStartUpdate(token, 4242, "harsh");
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ ok: true });
+
+        const row = await env.DB.prepare(`SELECT status, chat_id, telegram_username FROM bot_links WHERE token = ?`).bind(token)
+          .first<{ status: string; chat_id: string; telegram_username: string }>();
+        expect(row!.status).toBe("linked");
+        expect(row!.chat_id).toBe("4242");
+        expect(row!.telegram_username).toBe("harsh");
+
+        const cfg = await env.DB.prepare(`SELECT telegram_chat_id FROM configs WHERE user_id='owner'`).first<{ telegram_chat_id: string }>();
+        expect(cfg!.telegram_chat_id).toBe("4242");
+
+        // confirmation message was attempted (sendMessage called)
+        const calls = (spy.mock.calls as unknown as [string][]).map(([u]) => String(u));
+        expect(calls.some((u) => u.includes("/sendMessage"))).toBe(true);
+
+        const status = await SELF.fetch(`https://example.com/bot/status/${token}`, { headers: H });
+        const body = (await status.json()) as { status: string; chat_id: string; telegram_username: string };
+        expect(body.status).toBe("linked");
+        expect(body.chat_id).toBe("4242");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("plain START (no token) gets a guide message, nothing linked", async () => {
+      const spy = telegramMock();
+      try {
+        await env.DB.prepare(`INSERT INTO configs (user_id, fields, skills, sites, filters, score_threshold, cadence_hours, is_active, next_run_at, telegram_chat_id, updated_at)
+          VALUES ('owner', '[]', '[]', '[]', '{}', 70, 1, 1, 0, NULL, 1)`).run();
+        const res = await postStartUpdate(null, 4242);
+        expect(res.status).toBe(200);
+        const cfg = await env.DB.prepare(`SELECT telegram_chat_id FROM configs WHERE user_id='owner'`).first<{ telegram_chat_id: string | null }>();
+        expect(cfg!.telegram_chat_id).toBeNull();
+        const calls = (spy.mock.calls as unknown as [string][]).map(([u]) => String(u));
+        expect(calls.some((u) => u.includes("/sendMessage"))).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("expired token gets retry message, nothing linked", async () => {
+      const spy = telegramMock();
+      try {
+        await env.DB.prepare(`INSERT INTO bot_links (token, user_id, status, created_at) VALUES ('deadbeef', 'owner', 'pending', ?)`)
+          .bind(Date.now() - 20 * 60 * 1000).run();
+        const res = await postStartUpdate("deadbeef", 4242);
+        expect(res.status).toBe(200);
+        const row = await env.DB.prepare(`SELECT status FROM bot_links WHERE token = 'deadbeef'`).first<{ status: string }>();
+        expect(row!.status).toBe("pending");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("used token cannot link twice", async () => {
+      const spy = telegramMock();
+      try {
+        await env.DB.prepare(`INSERT INTO configs (user_id, fields, skills, sites, filters, score_threshold, cadence_hours, is_active, next_run_at, telegram_chat_id, updated_at)
+          VALUES ('owner', '[]', '[]', '[]', '{}', 70, 1, 1, 0, NULL, 1)`).run();
+        const { token } = await createLink();
+        await postStartUpdate(token, 4242, "harsh");
+        const cfg = await env.DB.prepare(`SELECT telegram_chat_id FROM configs WHERE user_id='owner'`).first<{ telegram_chat_id: string }>();
+        expect(cfg!.telegram_chat_id).toBe("4242");
+        // second attempt with same token from another chat — rejected (already linked)
+        await postStartUpdate(token, 9999, "intruder");
+        const cfgAfter = await env.DB.prepare(`SELECT telegram_chat_id FROM configs WHERE user_id='owner'`).first<{ telegram_chat_id: string }>();
+        expect(cfgAfter!.telegram_chat_id).toBe("4242");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("webhook rejects unknown secret path", async () => {
+      const res = await SELF.fetch("https://example.com/telegram/webhook/wrong-secret", {
+        method: "POST",
+        body: JSON.stringify({ message: { text: "/start x", chat: { id: 1 } } }),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it("bot/connect and bot/status require internal token", async () => {
+      const connect = await SELF.fetch("https://example.com/bot/connect", { method: "POST" });
+      expect(connect.status).toBe(401);
+      const status = await SELF.fetch("https://example.com/bot/status/abc");
+      expect(status.status).toBe(401);
+    });
   });
 
   it("run-batch validates body shape", async () => {
