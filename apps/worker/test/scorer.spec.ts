@@ -11,17 +11,17 @@ const profile = { fields: ["Frontend"], skills: ["React", "TypeScript"] };
 
 function claudeFetch(scores: { hash: string; score: number }[]) {
   return vi.fn().mockResolvedValue(new Response(JSON.stringify({
-    content: [{ type: "text", text: JSON.stringify(scores) }],
+    choices: [{ message: { content: JSON.stringify(scores) } }],
   }), { status: 200 })) as unknown as typeof fetch;
 }
 
 describe("scoreJobsBatch", () => {
-  it("parses claude json into a score map", async () => {
+  it("parses groq/openai json into a score map", async () => {
     const fetchMock = claudeFetch([{ hash: "h1", score: 87 }]);
     const map = await scoreJobsBatch("key", profile, [job()], fetchMock);
     expect(map.get("h1")).toBe(87);
     const [, init] = (fetchMock as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect((init as RequestInit).body).toContain("claude-haiku");
+    expect((init as RequestInit).body).toContain("openai/gpt-oss-120b");
   });
 });
 

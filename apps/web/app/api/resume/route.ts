@@ -12,31 +12,36 @@ export async function POST(req: Request) {
     const buf = Buffer.from(await file.arrayBuffer());
     const parsed = await pdfParse(buf);
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-      return Response.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 500 });
+      return Response.json({ error: "GROQ_API_KEY not configured" }, { status: 500 });
     }
 
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
+        "authorization": `Bearer ${apiKey}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: "openai/gpt-oss-120b",
         max_tokens: 1000,
-        system:
-          'Extract fields and skills from this resume. Reply ONLY JSON: {"fields":[...],"skills":[...]}.',
-        messages: [{ role: "user", content: parsed.text.slice(0, 15000) }],
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              'Extract fields and skills from this resume. Reply ONLY JSON: {"fields":[...],"skills":[...]}.',
+          },
+          { role: "user", content: parsed.text.slice(0, 15000) },
+        ],
       }),
     });
     if (!res.ok) {
-      return Response.json({ error: `Claude API ${res.status}` }, { status: 502 });
+      return Response.json({ error: `Groq API ${res.status}` }, { status: 502 });
     }
-    const body = (await res.json()) as { content?: { text?: string }[] };
-    const text = body.content?.[0]?.text ?? "{}";
+    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const text = body.choices?.[0]?.message?.content ?? "{}";
     const out = JSON.parse(text.replace(/```json|```/g, "").trim()) as {
       fields?: unknown;
       skills?: unknown;

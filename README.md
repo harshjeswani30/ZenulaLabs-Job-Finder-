@@ -52,7 +52,7 @@ Copy the printed `database_id` into `apps/worker/wrangler.jsonc` (replace `PLACE
 
 ```powershell
 npm run db:migrate:remote
-npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler secret put GROQ_API_KEY
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put INTERNAL_TOKEN   # generate first: node -e "console.log(crypto.randomUUID())"
 npx wrangler deploy
@@ -77,7 +77,7 @@ cd apps/web
 npx vercel
 ```
 
-Set env vars in the Vercel dashboard: `WORKER_URL` (the workers.dev URL), `WORKER_INTERNAL_TOKEN` (same value as the worker secret), `ANTHROPIC_API_KEY`.
+Set env vars in the Vercel dashboard: `WORKER_URL` (the workers.dev URL), `WORKER_INTERNAL_TOKEN` (same value as the worker secret), `GROQ_API_KEY`.
 
 ### 5. First run
 
@@ -85,4 +85,4 @@ Open the web app → Setup tab → add skills, tick Remotive, paste chat ID → 
 
 ## Cost profile
 
-Fixed ₹0 at MVP scale (Cloudflare free tier + Vercel Hobby). Variable: Claude API per scoring/resume call — the only recurring cost, covered by usage budget above. Upgrade to Workers Paid ($5/mo) only past ~50 users (MVP has none — single owner).
+Fixed ₹0 at MVP scale (Cloudflare free tier + Vercel Hobby). Variable: Groq API per scoring/resume call (gpt-oss-120b — free tier) — the only recurring cost, covered by usage budget above. Upgrade to Workers Paid ($5/mo) only past ~50 users (MVP has none — single owner).

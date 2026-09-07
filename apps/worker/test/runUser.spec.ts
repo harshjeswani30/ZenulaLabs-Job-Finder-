@@ -21,7 +21,7 @@ beforeEach(async () => {
 describe("runUser", () => {
   it("end-to-end: sources→dedupe→score→telegram→runs row", async () => {
     const fetchFn = sourceFetch({ url: "https://x.co/1", title: "React Dev", company: "Acme" });
-    const result = await runUser({ db, env: { ANTHROPIC_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
     expect(result.status).toBe("ok");
     expect(result.jobsSent).toBeGreaterThanOrEqual(1);
     const sent = await db.prepare(`SELECT COUNT(*) n FROM user_jobs WHERE sent_at IS NOT NULL`).first<{ n: number }>();
@@ -33,20 +33,20 @@ describe("runUser", () => {
 
   it("second run does not resend the same job", async () => {
     const fetchFn = sourceFetch({ url: "https://x.co/1", title: "React Dev", company: "Acme" });
-    await runUser({ db, env: { ANTHROPIC_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
-    const second = await runUser({ db, env: { ANTHROPIC_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+    await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+    const second = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
     expect(second.jobsSent).toBe(0);
   });
 
   it("marks failed when no config", async () => {
     await db.exec(`DELETE FROM configs`);
-    const result = await runUser({ db, env: { ANTHROPIC_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn: telegramOk });
+    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn: telegramOk });
     expect(result.status).toBe("failed");
   });
 
   it("marks partial when source fails but telegram still works via fallback", async () => {
     const badSource = vi.fn().mockResolvedValue(new Response("err", { status: 500 })) as unknown as typeof fetch;
-    const result = await runUser({ db, env: { ANTHROPIC_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn: badSource });
+    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn: badSource });
     expect(result.status).toBe("partial");
   });
 
@@ -62,18 +62,18 @@ describe("runUser", () => {
         }));
         return Promise.resolve(new Response(JSON.stringify({ jobs }), { status: 200 }));
       }
-      // Claude scoring call — body arrives in the RequestInit (second arg)
-      if (u.includes("anthropic")) {
+      // LLM scoring call (Groq/OpenAI-compatible) — body arrives in the RequestInit (second arg)
+      if (u.includes("groq.com") || u.includes("anthropic")) {
         const body = JSON.parse(String(init?.body ?? "{}"));
-        const wanted = JSON.parse(body.messages?.[0]?.content ?? "{}") as { jobs: { hash: string }[] };
+        const wanted = JSON.parse(body.messages?.[1]?.content ?? "{}") as { jobs: { hash: string }[] };
         return Promise.resolve(new Response(JSON.stringify({
-          content: [{ type: "text", text: JSON.stringify(wanted.jobs.map((j: { hash: string }) => ({ hash: j.hash, score: 85 }))) }],
+          choices: [{ message: { content: JSON.stringify(wanted.jobs.map((j: { hash: string }) => ({ hash: j.hash, score: 85 }))) } }],
         }), { status: 200 }));
       }
       return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
     }) as unknown as typeof fetch;
 
-    const result = await runUser({ db, env: { ANTHROPIC_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
     expect(result.status).toBe("ok");
     expect(result.jobsSent).toBe(25); // all 25 scored 85 ≥ 70, chunkForSending caps at 30 → all sent
     const scored = await db.prepare(`SELECT COUNT(*) n FROM user_jobs WHERE score = 85`).first<{ n: number }>();

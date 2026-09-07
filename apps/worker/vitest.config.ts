@@ -15,7 +15,7 @@ export default defineWorkersConfig(async () => {
             bindings: {
               TEST_MIGRATIONS: migrations,
               INTERNAL_TOKEN: "test-token",
-              ANTHROPIC_API_KEY: "test",
+              GROQ_API_KEY: "test",
               TELEGRAM_BOT_TOKEN: "test",
               SELF_URL: "http://localhost:8787",
             },

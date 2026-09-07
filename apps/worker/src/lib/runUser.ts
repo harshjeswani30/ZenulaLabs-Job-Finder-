@@ -5,7 +5,7 @@ import { chunkForSending, formatJobMessage, sendTelegramMessage } from "./telegr
 
 export interface RunUserDeps {
   db: D1Database;
-  env: { ANTHROPIC_API_KEY: string; TELEGRAM_BOT_TOKEN: string };
+  env: { GROQ_API_KEY: string; TELEGRAM_BOT_TOKEN: string };
   fetchFn?: typeof fetch;
   maxSources?: number;
 }
@@ -76,7 +76,7 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
     const unseenJobs = jobs.filter((j) => unseenHashes.has(j.hash));
 
     if (unseenJobs.length > 0) {
-      const scored = await scoreJobs(deps.env.ANTHROPIC_API_KEY, config, unseenJobs, fetchFn);
+      const scored = await scoreJobs(deps.env.GROQ_API_KEY, config, unseenJobs, fetchFn);
       const matches: ScoredJob[] = scored.filter((s) => s.score >= config.scoreThreshold).sort((a, b) => b.score - a.score);
 
       // record all unseen with scores (sent_at null unless sent)
