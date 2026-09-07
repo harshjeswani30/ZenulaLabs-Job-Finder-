@@ -1,0 +1,25 @@
+[
+  {
+    "totalFound": 1855,
+    "content": [
+      {
+        "id": "2026-001",
+        "name": "Senior Software Engineer, Platform",
+        "releasedDate": "2026-09-01T10:00:00.000Z",
+        "location": { "city": "Lake Forest", "country": "us", "fullLocation": "Lake Forest, Illinois, USA", "remote": true },
+        "function": { "label": "Engineering" },
+        "typeOfEmployment": "Permanent",
+        "company": { "name": "Acme" }
+      },
+      {
+        "id": "2026-002",
+        "name": "Data Scientist",
+        "releasedDate": "2026-09-03T08:00:00.000Z",
+        "location": { "city": "Remote", "country": "us", "fullLocation": "Remote, USA" },
+        "department": { "label": "Data & Analytics" },
+        "typeOfEmployment": "Contract",
+        "company": { "name": "Acme" }
+      }
+    ]
+  }
+]

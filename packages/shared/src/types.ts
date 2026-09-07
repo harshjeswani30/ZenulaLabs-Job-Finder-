@@ -22,8 +22,21 @@ export interface UserConfig {
 }
 
 export interface JobSourceSpec {
-  type: "remotive" | "arbeitnow" | "remoteok" | "greenhouse" | "lever" | "adzuna";
-  slug?: string;      // greenhouse/lever company slug
+  type:
+    | "remotive"
+    | "arbeitnow"
+    | "remoteok"
+    | "greenhouse"
+    | "lever"
+    | "adzuna"
+    | "smartrecruiters"
+    | "themuse"
+    | "himalayas"
+    | "jobicy"
+    | "landingjobs"
+    | "weworkremotely"
+    | "berlinstartupjobs";
+  slug?: string;      // greenhouse/lever/smartrecruiters company slug
   query?: string;     // adzuna search terms
 }
 

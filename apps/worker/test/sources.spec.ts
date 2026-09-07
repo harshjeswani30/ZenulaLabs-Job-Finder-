@@ -9,6 +9,8 @@ import { parseGreenhouse } from "../src/sources/greenhouse";
 import { parseLever } from "../src/sources/lever";
 import greenhouseFixture from "../src/sources/__fixtures__/greenhouse.json";
 import leverFixture from "../src/sources/__fixtures__/lever.json";
+import { parseSmartRecruiters } from "../src/sources/smartrecruiters";
+import smartrecruitersFixture from "../src/sources/__fixtures__/smartrecruiters.json";
 
 function jsonFetch(body: unknown) {
   return vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
@@ -70,5 +72,22 @@ describe("lever parser", () => {
   });
   it("throws when slug missing", async () => {
     await expect(parseLever({ type: "lever" } as never, jsonFetch(leverFixture))).rejects.toThrow(/slug/);
+  });
+});
+
+describe("smartrecruiters parser", () => {
+  it("normalizes postings with refs landingPage", async () => {
+    const jobs = await parseSmartRecruiters({ type: "smartrecruiters", slug: "Acme" } as never, jsonFetch(smartrecruitersFixture[0]));
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]).toMatchObject({
+      title: "Senior Software Engineer, Platform",
+      source: "smartrecruiters:Acme",
+      url: "https://jobs.smartrecruiters.com/Acme/2026-001",
+    });
+    expect(jobs[0].hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(jobs[1].location).toBe("Remote, USA");
+  });
+  it("throws when slug missing", async () => {
+    await expect(parseSmartRecruiters({ type: "smartrecruiters" } as never, jsonFetch(smartrecruitersFixture[0]))).rejects.toThrow(/slug/);
   });
 });
