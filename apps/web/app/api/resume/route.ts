@@ -30,8 +30,18 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content:
-              'Extract fields and skills from this resume. Reply ONLY JSON: {"fields":[...],"skills":[...]}.',
+            content: [
+              "You are a precise resume parser for a job-matching engine. Extract the candidate's professional identity as two lists.",
+              '"fields" = job categories this person works in (2-5 items). Short, canonical, as they appear in job titles. Examples: "Full Stack", "Frontend", "Backend", "Data Engineering", "Data Analyst", "DevOps", "Machine Learning", "Mobile Development", "QA Engineering".',
+              '"skills" = concrete technologies, tools, languages, and frameworks the candidate has actually used (10-25 items). Examples: "React", "TypeScript", "Node.js", "Python", "SQL", "PostgreSQL", "Docker", "AWS", "Tailwind CSS", "Next.js", "FastAPI".',
+              "Rules:",
+              "- Use the most standard name for each item (write \"PostgreSQL\", not \"postgres db\"; \"AWS\", not \"Amazon Web Services\").",
+              "- Include a skill only if the resume shows evidence of using it (in projects, work experience, or a skills section) — not merely because it appears in a job title.",
+              "- Exclude soft skills (communication, leadership, teamwork), certifications, education, and experience claims (\"5 years\").",
+              "- Keep each item 1-3 words, Title Case.",
+              "- If the resume is ambiguous, prefer what the candidate emphasizes most (recent, repeated, or prominent).",
+              'Reply with ONLY this JSON, no markdown, no explanation: {"fields": ["..."], "skills": ["..."]}',
+            ].join("\n"),
           },
           { role: "user", content: parsed.text.slice(0, 15000) },
         ],
