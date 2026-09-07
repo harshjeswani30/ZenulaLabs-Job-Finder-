@@ -91,3 +91,37 @@ describe("smartrecruiters parser", () => {
     await expect(parseSmartRecruiters({ type: "smartrecruiters" } as never, jsonFetch(smartrecruitersFixture[0]))).rejects.toThrow(/slug/);
   });
 });
+
+import { parseWeWorkRemotely, parseBerlinStartupJobs } from "../src/sources/rssBoards";
+
+const WWR_XML = `<?xml version="1.0"?><rss version="2.0"><channel>
+<item><title>Veracode: Principal Account Executive</title><link>https://weworkremotely.com/job/1</link><description>Sell security</description><pubDate>Mon, 07 Sep 2026 10:00:00 +0000</pubDate></item>
+<item><title>Legion: Director of Production Engineering</title><link>https://weworkremotely.com/job/2</link><description>Run infra</description></item>
+</channel></rss>`;
+
+function xmlFetch(body: string) {
+  return vi.fn().mockResolvedValue(new Response(body, { status: 200, headers: { "content-type": "application/xml" } })) as unknown as typeof fetch;
+}
+
+describe("weworkremotely parser", () => {
+  it("splits company:title and normalizes", async () => {
+    const jobs = await parseWeWorkRemotely({ type: "weworkremotely" } as never, xmlFetch(WWR_XML));
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]).toMatchObject({ title: "Principal Account Executive", company: "Veracode", source: "weworkremotely" });
+  });
+  it("query maps to category feed", async () => {
+    const mock = xmlFetch(WWR_XML);
+    await parseWeWorkRemotely({ type: "weworkremotely", query: "remote-programming-jobs" } as never, mock);
+    const [url] = (mock as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(String(url)).toContain("remote-programming-jobs");
+  });
+});
+
+describe("berlinstartupjobs parser", () => {
+  it("normalizes RSS with company split", async () => {
+    const jobs = await parseBerlinStartupJobs({ type: "berlinstartupjobs" } as never, xmlFetch(WWR_XML));
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0].company).toBe("Veracode");
+    expect(jobs[0].source).toBe("berlinstartupjobs");
+  });
+});

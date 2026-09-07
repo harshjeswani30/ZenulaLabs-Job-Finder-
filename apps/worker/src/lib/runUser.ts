@@ -2,6 +2,7 @@ import type { NormalizedJob, ScoredJob, UserConfig } from "@jobfinder/shared";
 import { getSourceParser } from "../sources/registry";
 import { scoreJobs } from "./scorer";
 import { chunkForSending, formatJobMessage, sendTelegramMessage } from "./telegram";
+import { defaultRotationSpecs } from "./companyRotation";
 
 export interface RunUserDeps {
   db: D1Database;
@@ -36,7 +37,15 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
 
   const now = Date.now();
   const cap = deps.maxSources ?? 20;
-  const specs = config.sites.slice(0, cap);
+  // Explicit user sites first; if rotateBoards is enabled (via config.filters),
+  // append a rotating slice of the 1205-company catalog until the cap.
+  const filters = config.filters as { rotateBoards?: { enabled?: boolean; count?: number } };
+  const explicitSpecs = config.sites.slice(0, cap);
+  let specs = explicitSpecs;
+  if (filters?.rotateBoards?.enabled) {
+    const rotCount = Math.min(filters.rotateBoards.count ?? 6, cap - explicitSpecs.length);
+    if (rotCount > 0) specs = [...explicitSpecs, ...defaultRotationSpecs(rotCount)];
+  }
   let sourcesOk = 0, sourcesFailed = 0;
   const collected: NormalizedJob[] = [];
   for (let i = 0; i < specs.length; i += 5) {
