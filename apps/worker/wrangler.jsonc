@@ -5,7 +5,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "triggers": { "crons": ["*/10 * * * *"] },
   "d1_databases": [
-    { "binding": "DB", "database_name": "jobfinder-db", "database_id": "PLACEHOLDER_CREATE_VIA_WRANGLER" }
+    { "binding": "DB", "database_name": "jobfinder-db", "database_id": "d62ccb2f-f281-4285-9c66-65dd418b614d" }
   ],
-  "vars": { "SCORE_THRESHOLD_DEFAULT": "70", "MAX_SOURCES_PER_RUN": "20", "SELF_URL": "PLACEHOLDER_SET_AFTER_FIRST_DEPLOY" }
+  "vars": { "SCORE_THRESHOLD_DEFAULT": "70", "MAX_SOURCES_PER_RUN": "20", "SELF_URL": "https://jobfinder-worker.harshjeswani30.workers.dev" }
 }
