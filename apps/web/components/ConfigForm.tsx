@@ -113,7 +113,7 @@ export default function ConfigForm() {
   const [skills, setSkills] = useState<string[]>([]);
   const [sites, setSites] = useState<SiteSpec[]>([]);
   const [rotateBoards, setRotateBoards] = useState(false);
-  const [rotateCount, setRotateCount] = useState(20);
+  const [rotateCount, setRotateCount] = useState(100);
   const [scoreThreshold, setScoreThreshold] = useState(70);
   const [cadenceHours, setCadenceHours] = useState(1);
   const [chatId, setChatId] = useState("");
@@ -145,7 +145,7 @@ export default function ConfigForm() {
       setSkills(cfg.skills ?? []);
       setSites(cfg.sites ?? []);
       setRotateBoards(cfg.filters?.rotateBoards?.enabled ?? false);
-      setRotateCount(cfg.filters?.rotateBoards?.count ?? 20);
+      setRotateCount(cfg.filters?.rotateBoards?.count ?? 100);
       setScoreThreshold(cfg.scoreThreshold ?? 70);
       setCadenceHours(cfg.cadenceHours ?? 1);
       setChatId(cfg.telegramChatId ?? "");
@@ -423,7 +423,7 @@ export default function ConfigForm() {
             <span className="font-medium">Auto-rotate company boards</span>
           </label>
           <p className="mt-1 mb-2 text-sm text-neutral-500">
-            Har run me 1205-company catalog se alag companies check hoti he — poora catalog ~2.5 din me cover ho jata he
+            Har run me 1205-company catalog se alag companies check hoti he — 100/run pe poora catalog ~12 ghante me cover ho jata he
           </p>
           {rotateBoards && (
             <div className="flex items-center gap-2 text-sm">
@@ -434,12 +434,12 @@ export default function ConfigForm() {
                 id="rotate-count"
                 type="number"
                 min={1}
-                max={20}
+                max={100}
                 value={rotateCount}
-                onChange={(e) => setRotateCount(Math.max(1, Math.min(20, Number(e.target.value))))}
+                onChange={(e) => setRotateCount(Math.max(1, Math.min(100, Number(e.target.value))))}
                 className="w-20 rounded border border-neutral-300 bg-white px-2 py-1"
               />
-              <span className="text-neutral-400">(1–20)</span>
+              <span className="text-neutral-400">(1–100)</span>
             </div>
           )}
         </div>

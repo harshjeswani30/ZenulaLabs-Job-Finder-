@@ -19,6 +19,44 @@ describe("api", () => {
     expect(res.status).toBe(401);
   });
 
+  it("rejects run-batch without internal token", async () => {
+    const res = await SELF.fetch("https://example.com/run-batch", { method: "POST", body: JSON.stringify({}) });
+    expect(res.status).toBe(401);
+  });
+
+  it("run-batch validates body shape", async () => {
+    const res = await SELF.fetch("https://example.com/run-batch", { method: "POST", headers: H, body: JSON.stringify({ specs: [] }) });
+    expect(res.status).toBe(400);
+  });
+
+  it("run-batch runs a pipeline slice and returns batch stats", async () => {
+    await env.DB.prepare(`INSERT INTO configs (user_id, fields, skills, sites, filters, score_threshold, cadence_hours, is_active, next_run_at, telegram_chat_id, updated_at)
+      VALUES ('owner', '["Frontend"]', '["React"]', '[]', '{}', 70, 1, 1, 0, '12345', 1)`).run();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("remotive")) {
+        return new Response(JSON.stringify({
+          jobs: [{ url: "https://x.co/1", title: "React Dev", company_name: "Acme", candidate_required_location: "Remote", salary: "", publication_date: "2026-09-01T10:00:00Z", description: "<p>Great</p>" }],
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    try {
+      const config = { userId: "owner", fields: ["Frontend"], skills: ["React"], sites: [], filters: {}, scoreThreshold: 70, cadenceHours: 1, isActive: true };
+      const res = await SELF.fetch("https://example.com/run-batch", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ specs: [{ type: "remotive" }], runId: "r1", config, chatId: "12345" }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string; jobsFound: number; sourcesOk: number };
+      expect(body.status).toBe("ok");
+      expect(body.sourcesOk).toBe(1);
+      expect(body.jobsFound).toBeGreaterThanOrEqual(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("set + get config round-trips", async () => {
     const cfg = { userId: "owner", fields: ["Frontend"], skills: ["React"], sites: [{ type: "remotive" }], filters: {}, scoreThreshold: 70, cadenceHours: 1, isActive: true, telegramChatId: "4242" };
     const set = await SELF.fetch("https://example.com/config", { method: "POST", headers: H, body: JSON.stringify(cfg) });

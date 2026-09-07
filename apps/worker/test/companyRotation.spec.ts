@@ -34,6 +34,13 @@ describe("defaultRotationSpecs", () => {
     expect(specs.filter((s) => s.type === "smartrecruiters")).toHaveLength(8);
     expect(specs.filter((s) => s.type === "lever")).toHaveLength(4);
   });
+  it("100-run mix: GH 40 / SR 40 / Lever 20 (full catalog ≈ 12h at hourly)", () => {
+    const specs = defaultRotationSpecs(100);
+    expect(specs).toHaveLength(100);
+    expect(specs.filter((s) => s.type === "greenhouse")).toHaveLength(40);
+    expect(specs.filter((s) => s.type === "smartrecruiters")).toHaveLength(40);
+    expect(specs.filter((s) => s.type === "lever")).toHaveLength(20);
+  });
   it("small counts still mix all three ATS types", () => {
     const specs = defaultRotationSpecs(6);
     expect(specs).toHaveLength(6);

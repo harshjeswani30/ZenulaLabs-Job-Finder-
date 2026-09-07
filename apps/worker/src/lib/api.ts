@@ -1,4 +1,6 @@
 import type { Env } from "../env";
+import type { JobSourceSpec, UserConfig } from "@jobfinder/shared";
+import { runPipeline, type BatchResult } from "./runUser";
 
 export async function handleApi(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
@@ -52,6 +54,22 @@ export async function handleApi(req: Request, env: Env): Promise<Response> {
   if (path === "/run-user" && req.method === "POST") {
     const { runUser } = await import("./runUser");
     const result = await runUser({ db: env.DB, env });
+    return Response.json(result);
+  }
+
+  if (path === "/run-batch" && req.method === "POST") {
+    // One fan-out slice of a /run-user orchestration: fetch→dedupe→store→score→send
+    // for the given source specs. The orchestrator owns the runs-row write.
+    const body = (await req.json()) as {
+      specs: JobSourceSpec[];
+      runId: string;
+      config: UserConfig;
+      chatId: string;
+    };
+    if (!Array.isArray(body.specs) || body.specs.length === 0 || !body.config || !body.chatId) {
+      return Response.json({ error: "specs, config, chatId required" }, { status: 400 });
+    }
+    const result: BatchResult = await runPipeline({ db: env.DB, env }, body.specs, body.config, body.chatId);
     return Response.json(result);
   }
 

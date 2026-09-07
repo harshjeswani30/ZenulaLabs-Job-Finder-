@@ -4,6 +4,5 @@ export interface Env {
   TELEGRAM_BOT_TOKEN: string;
   INTERNAL_TOKEN: string;
   SCORE_THRESHOLD_DEFAULT: string;
-  MAX_SOURCES_PER_RUN: string;
   SELF_URL: string;
 }

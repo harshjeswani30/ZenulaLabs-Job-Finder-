@@ -1,4 +1,4 @@
-import type { NormalizedJob, ScoredJob, UserConfig } from "@jobfinder/shared";
+import type { JobSourceSpec, NormalizedJob, ScoredJob, UserConfig } from "@jobfinder/shared";
 import { getSourceParser } from "../sources/registry";
 import { scoreJobs } from "./scorer";
 import { chunkForSending, formatJobMessage, sendTelegramMessage } from "./telegram";
@@ -6,25 +6,33 @@ import { defaultRotationSpecs } from "./companyRotation";
 
 export interface RunUserDeps {
   db: D1Database;
-  env: { GROQ_API_KEY: string; TELEGRAM_BOT_TOKEN: string };
+  env: { GROQ_API_KEY: string; TELEGRAM_BOT_TOKEN: string; INTERNAL_TOKEN: string; SELF_URL: string };
   fetchFn?: typeof fetch;
   maxSources?: number;
 }
 
 export interface RunUserResult { status: "ok" | "partial" | "failed"; jobsSent: number; error?: string; }
 
+/** One fan-out batch of source specs: fetched → deduped → stored → scored → sent. */
+export interface BatchResult {
+  status: "ok" | "partial" | "failed";
+  sourcesOk: number;
+  sourcesFailed: number;
+  jobsFound: number;
+  jobsSent: number;
+  deferredScored: number; // unseen jobs left for the next run (scored cap overflow)
+  error?: string;
+}
+
 const USER_ID = "owner"; // MVP single user; Task 10 parameterizes
 
-export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
-  const fetchFn = deps.fetchFn ?? fetch;
-  const started = Date.now();
-  const runId = crypto.randomUUID();
+const BATCH_SIZE = 10;          // source specs per /run-batch invocation (50-subrequest budget)
+const MAX_SCORED_PER_BATCH = 300; // 25-job Groq chunks → ≤12 scoring calls per batch
 
-  const cfgRow = await deps.db.prepare(`SELECT * FROM configs WHERE user_id = ?`).bind(USER_ID).first<Record<string, string | number | null>>();
-  if (!cfgRow || Number(cfgRow.is_active) !== 1 || !cfgRow.telegram_chat_id) {
-    return { status: "failed", jobsSent: 0, error: "no config/chat_id" };
-  }
-  const config: UserConfig = {
+interface ConfigRow extends Record<string, string | number | null> { telegram_chat_id: string | null }
+
+function loadConfig(cfgRow: ConfigRow): UserConfig {
+  return {
     userId: USER_ID,
     fields: JSON.parse(String(cfgRow.fields)) as string[],
     skills: JSON.parse(String(cfgRow.skills)) as string[],
@@ -34,19 +42,16 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
     cadenceHours: Number(cfgRow.cadence_hours),
     isActive: true,
   };
+}
 
-  const now = Date.now();
-  const cap = deps.maxSources ?? 20;
-  // Explicit user sites first; if rotateBoards is enabled (via config.filters),
-  // append a rotating slice of the 1205-company catalog until the cap.
-  const filters = config.filters as { rotateBoards?: { enabled?: boolean; count?: number } };
-  const explicitSpecs = config.sites.slice(0, cap);
-  let specs = explicitSpecs;
-  if (filters?.rotateBoards?.enabled) {
-    // fill remaining slots with rotating catalog boards, capped at 20/run total
-    const rotCount = Math.min(filters.rotateBoards.count ?? 20, cap - explicitSpecs.length);
-    if (rotCount > 0) specs = [...explicitSpecs, ...defaultRotationSpecs(rotCount)];
-  }
+/** Core pipeline for a batch of source specs. No runs-row write — the orchestrator owns that. */
+export async function runPipeline(
+  deps: RunUserDeps,
+  specs: JobSourceSpec[],
+  config: UserConfig,
+  chatId: string
+): Promise<BatchResult> {
+  const fetchFn = deps.fetchFn ?? fetch;
   let sourcesOk = 0, sourcesFailed = 0;
   const collected: NormalizedJob[] = [];
   for (let i = 0; i < specs.length; i += 5) {
@@ -65,68 +70,140 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
   const unique = new Map<string, NormalizedJob>();
   for (const j of collected) unique.set(j.hash, j);
   const jobs = [...unique.values()];
+  if (jobs.length === 0) {
+    return { status: sourcesFailed > 0 ? "partial" : "ok", sourcesOk, sourcesFailed, jobsFound: 0, jobsSent: 0, deferredScored: 0 };
+  }
 
-  if (jobs.length > 0) {
-    // D1 caps bound parameters per statement at 100 — chunk multi-row inserts below it.
-    const jobsPerStmt = Math.floor(90 / 10); // 10 columns → 9 rows (90 params)
-    const stmts = [];
-    for (let i = 0; i < jobs.length; i += jobsPerStmt) {
-      const chunk = jobs.slice(i, i + jobsPerStmt);
-      const values = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
-      const binds = chunk.flatMap((j) => [j.hash, j.title, j.company, j.location, j.salary, j.url, j.source, j.descriptionSnippet, j.postedAt, now]);
-      stmts.push(deps.db.prepare(`INSERT OR IGNORE INTO jobs (hash, title, company, location, salary, url, source, description_snippet, posted_at, first_seen_at) VALUES ${values}`).bind(...binds));
-    }
-    await deps.db.batch(stmts);
+  // D1 caps bound parameters per statement at 100 — chunk multi-row inserts below it.
+  const jobsPerStmt = Math.floor(90 / 10); // 10 columns → 9 rows (90 params)
+  const stmts = [];
+  const now = Date.now();
+  for (let i = 0; i < jobs.length; i += jobsPerStmt) {
+    const chunk = jobs.slice(i, i + jobsPerStmt);
+    const values = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
+    const binds = chunk.flatMap((j) => [j.hash, j.title, j.company, j.location, j.salary, j.url, j.source, j.descriptionSnippet, j.postedAt, now]);
+    stmts.push(deps.db.prepare(`INSERT OR IGNORE INTO jobs (hash, title, company, location, salary, url, source, description_snippet, posted_at, first_seen_at) VALUES ${values}`).bind(...binds));
+  }
+  await deps.db.batch(stmts);
 
-    const unseen = await deps.db.prepare(
-      `SELECT j.hash FROM jobs j LEFT JOIN user_jobs uj ON uj.job_hash = j.hash AND uj.user_id = ?
-       WHERE uj.job_hash IS NULL AND j.first_seen_at = ?`
-    ).bind(USER_ID, now).all<{ hash: string }>();
-    const unseenHashes = new Set(unseen.results.map((r) => r.hash));
-    const unseenJobs = jobs.filter((j) => unseenHashes.has(j.hash));
+  // unseen = stored job this user has never seen — no time filter, so jobs that
+  // overflowed a previous run's scored cap get picked up here instead of being lost.
+  const unseen = await deps.db.prepare(
+    `SELECT j.hash FROM jobs j LEFT JOIN user_jobs uj ON uj.job_hash = j.hash AND uj.user_id = ?
+     WHERE uj.job_hash IS NULL`
+  ).bind(USER_ID).all<{ hash: string }>();
+  const unseenHashes = new Set(unseen.results.map((r) => r.hash));
+  const unseenJobs = jobs.filter((j) => unseenHashes.has(j.hash));
+  if (unseenJobs.length === 0) {
+    return { status: sourcesFailed > 0 ? "partial" : "ok", sourcesOk, sourcesFailed, jobsFound: jobs.length, jobsSent: 0, deferredScored: 0 };
+  }
 
-    if (unseenJobs.length > 0) {
-      const scored = await scoreJobs(deps.env.GROQ_API_KEY, config, unseenJobs, fetchFn);
-      const matches: ScoredJob[] = scored.filter((s) => s.score >= config.scoreThreshold).sort((a, b) => b.score - a.score);
+  // cap scoring per batch; overflow stays unseen and is scored on the next run
+  const toScore = unseenJobs.slice(0, MAX_SCORED_PER_BATCH);
+  const deferredScored = unseenJobs.length - toScore.length;
 
-      // record all unseen with scores (sent_at null unless sent)
-      const userJobsPerStmt = Math.floor(90 / 5); // 5 columns → 18 rows (90 params)
-      const insStmts = [];
-      for (let i = 0; i < scored.length; i += userJobsPerStmt) {
-        const chunk = scored.slice(i, i + userJobsPerStmt);
-        const values = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
-        const binds = chunk.flatMap((s) => [USER_ID, s.job.hash, now, null, s.score]);
-        insStmts.push(deps.db.prepare(`INSERT INTO user_jobs (user_id, job_hash, first_seen_at, sent_at, score) VALUES ${values}`).bind(...binds));
+  const scored = await scoreJobs(deps.env.GROQ_API_KEY, config, toScore, fetchFn);
+  const matches: ScoredJob[] = scored.filter((s) => s.score >= config.scoreThreshold).sort((a, b) => b.score - a.score);
+
+  // record all scored jobs (sent_at null unless sent)
+  const userJobsPerStmt = Math.floor(90 / 5); // 5 columns → 18 rows (90 params)
+  const insStmts = [];
+  for (let i = 0; i < scored.length; i += userJobsPerStmt) {
+    const chunk = scored.slice(i, i + userJobsPerStmt);
+    const values = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const binds = chunk.flatMap((s) => [USER_ID, s.job.hash, now, null, s.score]);
+    insStmts.push(deps.db.prepare(`INSERT INTO user_jobs (user_id, job_hash, first_seen_at, sent_at, score) VALUES ${values}`).bind(...binds));
+  }
+  if (insStmts.length) await deps.db.batch(insStmts);
+
+  let sent = 0;
+  if (matches.length > 0) {
+    const chunks = chunkForSending(matches);
+    try {
+      for (const c of chunks) {
+        const header = `🔥 ${matches.length} new job${matches.length === 1 ? "" : "s"} — ${config.fields.join("/") || "your fields"}`;
+        await sendTelegramMessage(deps.env.TELEGRAM_BOT_TOKEN, chatId, formatJobMessage(header, c.jobs), fetchFn);
+        sent += c.jobs.length;
       }
-      if (insStmts.length) await deps.db.batch(insStmts);
-
-      let sent = 0;
-      if (matches.length > 0 && config.userId === USER_ID) {
-        const chunks = chunkForSending(matches);
-        try {
-          for (const c of chunks) {
-            const header = `🔥 ${matches.length} new job${matches.length === 1 ? "" : "s"} — ${config.fields.join("/") || "your fields"}`;
-            await sendTelegramMessage(deps.env.TELEGRAM_BOT_TOKEN, String(cfgRow.telegram_chat_id), formatJobMessage(header, c.jobs), fetchFn);
-            sent += c.jobs.length;
-          }
-        } catch (err) {
-          // send failed: mark run partial, record it, do not mark rows sent
-          const message = err instanceof Error ? err.message : String(err);
-          await insertRun(deps.db, runId, started, "partial", sourcesOk, sourcesFailed, jobs.length, sent, message);
-          return { status: "partial", jobsSent: sent, error: message };
-        }
-        await deps.db.prepare(`UPDATE user_jobs SET sent_at = ? WHERE user_id = ? AND sent_at IS NULL AND score >= ?`)
-          .bind(now, USER_ID, config.scoreThreshold).run();
-      }
-      const status = sourcesFailed > 0 ? "partial" : "ok";
-      await insertRun(deps.db, runId, started, status, sourcesOk, sourcesFailed, jobs.length, sent, undefined);
-      return { status, jobsSent: sent };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { status: "partial", sourcesOk, sourcesFailed, jobsFound: jobs.length, jobsSent: sent, deferredScored, error: message };
     }
+    await deps.db.prepare(`UPDATE user_jobs SET sent_at = ? WHERE user_id = ? AND sent_at IS NULL AND score >= ?`)
+      .bind(now, USER_ID, config.scoreThreshold).run();
   }
 
   const status = sourcesFailed > 0 ? "partial" : "ok";
-  await insertRun(deps.db, runId, started, status, sourcesOk, sourcesFailed, jobs.length, 0, undefined);
-  return { status, jobsSent: 0 };
+  return { status, sourcesOk, sourcesFailed, jobsFound: jobs.length, jobsSent: sent, deferredScored };
+}
+
+export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
+  const fetchFn = deps.fetchFn ?? fetch;
+  const started = Date.now();
+  const runId = crypto.randomUUID();
+
+  const cfgRow = await deps.db.prepare(`SELECT * FROM configs WHERE user_id = ?`).bind(USER_ID).first<ConfigRow>();
+  if (!cfgRow || Number(cfgRow.is_active) !== 1 || !cfgRow.telegram_chat_id) {
+    return { status: "failed", jobsSent: 0, error: "no config/chat_id" };
+  }
+  const config = loadConfig(cfgRow);
+  const chatId = String(cfgRow.telegram_chat_id);
+
+  const cap = deps.maxSources ?? 100;
+  // Explicit user sites first; rotateBoards (via config.filters) appends a rotating
+  // slice of the 1205-company catalog up to the cap. Default 100 companies/run.
+  const filters = config.filters as { rotateBoards?: { enabled?: boolean; count?: number } };
+  const explicitSpecs = config.sites.slice(0, cap);
+  let specs = explicitSpecs;
+  if (filters?.rotateBoards?.enabled) {
+    const rotCount = Math.min(filters.rotateBoards.count ?? 100, cap - explicitSpecs.length);
+    if (rotCount > 0) specs = [...explicitSpecs, ...defaultRotationSpecs(rotCount)];
+  }
+  if (specs.length === 0) {
+    await insertRun(deps.db, runId, started, "ok", 0, 0, 0, 0, undefined);
+    return { status: "ok", jobsSent: 0 };
+  }
+
+  // Fan out in parallel batches — each /run-batch invocation gets its own
+  // subrequest budget (free plan caps a single invocation at 50 fetches).
+  const batches: JobSourceSpec[][] = [];
+  for (let i = 0; i < specs.length; i += BATCH_SIZE) batches.push(specs.slice(i, i + BATCH_SIZE));
+
+  const results = await Promise.allSettled(batches.map((batchSpecs) =>
+    fetchFn(`${deps.env.SELF_URL}/run-batch`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-internal-token": deps.env.INTERNAL_TOKEN },
+      body: JSON.stringify({ specs: batchSpecs, runId, config: { ...config, isActive: true }, chatId }),
+    })
+  ));
+
+  let sourcesOk = 0, sourcesFailed = 0, jobsFound = 0, jobsSent = 0, deferredScored = 0;
+  let anyPartial = false;
+  const errors: string[] = [];
+  let handled = 0;
+  for (const r of results) {
+    if (r.status !== "fulfilled") { anyPartial = true; continue; }
+    const body = await r.value.json().catch(() => null) as BatchResult | null;
+    if (!body || typeof body.sourcesOk !== "number") { anyPartial = true; continue; }
+    handled++;
+    sourcesOk += body.sourcesOk;
+    sourcesFailed += body.sourcesFailed;
+    jobsFound += body.jobsFound;
+    jobsSent += body.jobsSent;
+    deferredScored += body.deferredScored ?? 0;
+    if (body.status !== "ok") anyPartial = true;
+    if (body.error) errors.push(body.error);
+  }
+  if (handled < batches.length) anyPartial = true;
+  if (handled === 0) {
+    const error = errors[0] ?? "all batches failed";
+    await insertRun(deps.db, runId, started, "failed", 0, 0, jobsFound, 0, error);
+    return { status: "failed", jobsSent: 0, error };
+  }
+
+  const status = anyPartial ? "partial" : "ok";
+  await insertRun(deps.db, runId, started, status, sourcesOk, sourcesFailed, jobsFound, jobsSent, errors[0]);
+  return { status, jobsSent };
 }
 
 async function insertRun(db: D1Database, id: string, startedAt: number, status: string, ok: number, failed: number, found: number, sent: number, error: string | undefined) {

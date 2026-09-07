@@ -17,7 +17,11 @@ export default defineWorkersConfig(async () => {
               INTERNAL_TOKEN: "test-token",
               GROQ_API_KEY: "test",
               TELEGRAM_BOT_TOKEN: "test",
-              SELF_URL: "http://localhost:8787",
+              // Deliberately non-routable: /run-user orchestrates by self-fetching
+              // SELF_URL/run-batch, and the cron handler self-fetches SELF_URL/run-user.
+              // If this pointed at a real dev server, tests would trigger REAL runs
+              // (real sources, real Telegram). Fetches here fail instantly instead.
+              SELF_URL: "http://self.invalid",
             },
           },
         },

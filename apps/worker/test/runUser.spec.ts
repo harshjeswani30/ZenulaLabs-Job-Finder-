@@ -1,15 +1,74 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
-import { runUser } from "../src/lib/runUser";
+import { runUser, runPipeline } from "../src/lib/runUser";
+import type { UserConfig } from "@jobfinder/shared";
 
 const db = env.DB;
 
-const telegramOk = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 })) as unknown as typeof fetch;
+const TEST_ENV = {
+  GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test",
+  INTERNAL_TOKEN: env.INTERNAL_TOKEN, SELF_URL: "https://self.example",
+};
 
-function sourceFetch(job: Record<string, string>) {
-  return vi.fn().mockResolvedValue(new Response(JSON.stringify({
-    jobs: [{ url: job.url, title: job.title, company_name: job.company, candidate_required_location: "Remote", salary: "", publication_date: "2026-09-01T10:00:00Z", description: "<p>Great</p>" }],
-  }), { status: 200 })) as unknown as typeof fetch;
+const BASE_CONFIG: UserConfig = {
+  userId: "owner", fields: ["Frontend"], skills: ["React"], sites: [{ type: "remotive" }],
+  filters: {}, scoreThreshold: 70, cadenceHours: 1, isActive: true,
+};
+
+/** Mock fetch for everything the pipeline touches in-process:
+ *  remotive source, greenhouse/lever/sr board shapes, Groq scoring (85), Telegram. */
+function pipelineFetch() {
+  return vi.fn().mockImplementation((url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes("remotive")) {
+      return Promise.resolve(new Response(JSON.stringify({
+        jobs: [{ url: "https://x.co/1", title: "React Dev", company_name: "Acme", candidate_required_location: "Remote", salary: "", publication_date: "2026-09-01T10:00:00Z", description: "<p>Great</p>" }],
+      }), { status: 200 }));
+    }
+    if (u.includes("boards-api.greenhouse.io")) {
+      return Promise.resolve(new Response(JSON.stringify({
+        jobs: [{ title: "React Dev", absolute_url: "https://x.co/gh", location: { name: "Remote" }, updated_at: "2026-09-01T10:00:00Z", content: "" }],
+      }), { status: 200 }));
+    }
+    if (u.includes("api.lever.co")) {
+      return Promise.resolve(new Response(JSON.stringify([
+        { text: "React Dev", hostedUrl: "https://x.co/lv", categories: { location: "Remote" }, createdAt: 1725148800000, descriptionPlain: "Great" },
+      ]), { status: 200 }));
+    }
+    if (u.includes("api.smartrecruiters.com")) {
+      return Promise.resolve(new Response(JSON.stringify({
+        content: [{ id: "1", name: "React Dev", releasedDate: "2026-09-01T10:00:00Z", location: { fullLocation: "Remote" } }],
+      }), { status: 200 }));
+    }
+    if (u.includes("groq.com")) {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      const wanted = JSON.parse(body.messages?.[1]?.content ?? "{}") as { jobs: { hash: string }[] };
+      return Promise.resolve(new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(wanted.jobs.map((j: { hash: string }) => ({ hash: j.hash, score: 85 }))) } }],
+      }), { status: 200 }));
+    }
+    return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+  }) as unknown as typeof fetch;
+}
+
+/** Orchestrator test double: intercepts the /run-batch self-fetch and runs the
+ *  real pipeline in-process (mocked network), recording each batch payload. */
+function makeBatchRunner() {
+  const batchCalls: { specs: { type: string; slug?: string }[]; runId: string }[] = [];
+  const inner = pipelineFetch();
+  const fetchFn = vi.fn().mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (u === `${TEST_ENV.SELF_URL}/run-batch`) {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        specs: Parameters<typeof runPipeline>[1]; runId: string; config: UserConfig; chatId: string;
+      };
+      batchCalls.push({ specs: body.specs, runId: body.runId });
+      const result = await runPipeline({ db, env: TEST_ENV, fetchFn: inner }, body.specs, body.config, body.chatId);
+      return new Response(JSON.stringify(result), { status: 200 });
+    }
+    return (inner as unknown as (u: string) => Promise<Response>)(u);
+  }) as unknown as typeof fetch;
+  return { batchCalls, fetchFn };
 }
 
 beforeEach(async () => {
@@ -18,12 +77,14 @@ beforeEach(async () => {
     VALUES ('owner', '["Frontend"]', '["React"]', '[{"type":"remotive"}]', '{}', 70, 1, 1, 0, '12345', 1)`).run();
 });
 
-describe("runUser", () => {
-  it("end-to-end: sources→dedupe→score→telegram→runs row", async () => {
-    const fetchFn = sourceFetch({ url: "https://x.co/1", title: "React Dev", company: "Acme" });
-    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+describe("runUser (orchestrator)", () => {
+  it("fans out a single explicit source as one batch and aggregates stats", async () => {
+    const { batchCalls, fetchFn } = makeBatchRunner();
+    const result = await runUser({ db, env: TEST_ENV, fetchFn });
     expect(result.status).toBe("ok");
     expect(result.jobsSent).toBeGreaterThanOrEqual(1);
+    expect(batchCalls).toHaveLength(1);
+    expect(batchCalls[0].specs).toEqual([{ type: "remotive" }]);
     const sent = await db.prepare(`SELECT COUNT(*) n FROM user_jobs WHERE sent_at IS NOT NULL`).first<{ n: number }>();
     expect(sent!.n).toBeGreaterThanOrEqual(1);
     const runs = await db.prepare(`SELECT status, jobs_sent FROM runs`).first<{ status: string; jobs_sent: number }>();
@@ -32,24 +93,50 @@ describe("runUser", () => {
   });
 
   it("second run does not resend the same job", async () => {
-    const fetchFn = sourceFetch({ url: "https://x.co/1", title: "React Dev", company: "Acme" });
-    await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
-    const second = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+    const { fetchFn } = makeBatchRunner();
+    await runUser({ db, env: TEST_ENV, fetchFn });
+    const second = await runUser({ db, env: TEST_ENV, fetchFn });
     expect(second.jobsSent).toBe(0);
   });
 
   it("marks failed when no config", async () => {
     await db.exec(`DELETE FROM configs`);
-    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn: telegramOk });
+    const result = await runUser({ db, env: TEST_ENV, fetchFn: pipelineFetch() });
     expect(result.status).toBe("failed");
   });
 
-  it("marks partial when source fails but telegram still works via fallback", async () => {
-    const badSource = vi.fn().mockResolvedValue(new Response("err", { status: 500 })) as unknown as typeof fetch;
-    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn: badSource });
-    expect(result.status).toBe("partial");
+  it("all batch self-fetches failing → run marked failed", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response("err", { status: 500 })) as unknown as typeof fetch;
+    const result = await runUser({ db, env: TEST_ENV, fetchFn });
+    expect(result.status).toBe("failed");
+    const runs = await db.prepare(`SELECT status FROM runs`).first<{ status: string }>();
+    expect(runs!.status).toBe("failed");
   });
 
+  it("rotateBoards enabled fans out 100 specs across 11 batches (1 explicit + 100 rotation)", async () => {
+    await db.prepare(`UPDATE configs SET filters = ? WHERE user_id = 'owner'`).bind(
+      JSON.stringify({ rotateBoards: { enabled: true, count: 100 } })
+    ).run();
+    const { batchCalls, fetchFn } = makeBatchRunner();
+    const result = await runUser({ db, env: TEST_ENV, fetchFn });
+    expect(result.status).toBe("ok");
+    // cap 100 total: 1 explicit remotive + 99 rotating = 100 specs → 10 batches of 10
+    expect(batchCalls).toHaveLength(10);
+    expect(batchCalls.every((b) => b.specs.length <= 10)).toBe(true);
+    const allSpecs = batchCalls.flatMap((b) => b.specs);
+    expect(allSpecs).toHaveLength(100);
+    expect(allSpecs.filter((s) => s.type === "remotive")).toHaveLength(1);
+    // 99-mix: GH 40 / SR 40 / Lever 19
+    expect(allSpecs.filter((s) => s.type === "greenhouse")).toHaveLength(40);
+    expect(allSpecs.filter((s) => s.type === "smartrecruiters")).toHaveLength(40);
+    expect(allSpecs.filter((s) => s.type === "lever")).toHaveLength(19);
+    // every batch gets the same runId (one logical run)
+    const runIds = new Set(batchCalls.map((b) => b.runId));
+    expect(runIds.size).toBe(1);
+  });
+});
+
+describe("runPipeline (batch core)", () => {
   it("handles >9 jobs without hitting D1's 100-bind limit", async () => {
     // Regression: bulk inserts used 40-row chunks (10 cols × 40 = 400 binds) — D1 caps at 100.
     // 25 unique jobs force both the jobs insert (10 binds/row) and user_jobs insert (5 binds/row) to chunk.
@@ -62,8 +149,7 @@ describe("runUser", () => {
         }));
         return Promise.resolve(new Response(JSON.stringify({ jobs }), { status: 200 }));
       }
-      // LLM scoring call (Groq/OpenAI-compatible) — body arrives in the RequestInit (second arg)
-      if (u.includes("groq.com") || u.includes("anthropic")) {
+      if (u.includes("groq.com")) {
         const body = JSON.parse(String(init?.body ?? "{}"));
         const wanted = JSON.parse(body.messages?.[1]?.content ?? "{}") as { jobs: { hash: string }[] };
         return Promise.resolve(new Response(JSON.stringify({
@@ -73,94 +159,56 @@ describe("runUser", () => {
       return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
     }) as unknown as typeof fetch;
 
-    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+    const result = await runPipeline({ db, env: TEST_ENV, fetchFn }, BASE_CONFIG.sites, BASE_CONFIG, "12345");
     expect(result.status).toBe("ok");
     expect(result.jobsSent).toBe(25); // all 25 scored 85 ≥ 70, chunkForSending caps at 30 → all sent
     const scored = await db.prepare(`SELECT COUNT(*) n FROM user_jobs WHERE score = 85`).first<{ n: number }>();
     expect(scored!.n).toBe(25);
   });
 
-  it("rotateBoards appends rotating company specs to explicit sites", async () => {
-    await db.prepare(`UPDATE configs SET filters = ? WHERE user_id = 'owner'`).bind(
-      JSON.stringify({ rotateBoards: { enabled: true, count: 6 } })
-    ).run();
-    const seen: string[] = [];
-    const fetchFn = vi.fn().mockImplementation((url: string | URL | Request) => {
+  it("deferred (cap-overflow) unseen jobs get scored on the next run", async () => {
+    // Regression: the old unseen query filtered first_seen_at = <run's now>,
+    // so any job not scored in its own run was silently lost forever.
+    const jobsFetch = (n: number) => vi.fn().mockImplementation((url: string | URL | Request) => {
       const u = String(url);
-      seen.push(u);
-      // Each parser gets a body it can actually parse (greenhouse/lever/sr board shapes).
-      const gh = { jobs: [{ title: "React Dev", absolute_url: "https://x.co/1", location: { name: "Remote" }, updated_at: "2026-09-01T10:00:00Z", content: "" }] };
-      const lv = [{ text: "React Dev", hostedUrl: "https://x.co/2", categories: { location: "Remote" }, createdAt: 1725148800000, descriptionPlain: "Great" }];
-      const sr = { content: [{ id: "1", name: "React Dev", releasedDate: "2026-09-01T10:00:00Z", location: { fullLocation: "Remote" } }] };
-      const rem = { jobs: [{ url: "https://x.co/3", title: "React Dev", company_name: "Acme", candidate_required_location: "Remote", salary: "", publication_date: "2026-09-01T10:00:00Z", description: "<p>Great</p>" }] };
-      let body: unknown;
-      if (u.includes("greenhouse")) body = gh;
-      else if (u.includes("lever.co")) body = lv;
-      else if (u.includes("smartrecruiters")) body = sr;
-      else if (u.includes("remotive")) body = rem;
-      else body = { ok: true };
-      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      if (u.includes("remotive")) {
+        const jobs = Array.from({ length: n }, (_, i) => ({
+          url: `https://x.co/${i}`, title: `React Dev ${i}`, company_name: "Acme",
+          candidate_required_location: "Remote", salary: "", publication_date: "2026-09-01T10:00:00Z", description: "<p>Great</p>",
+        }));
+        return Promise.resolve(new Response(JSON.stringify({ jobs }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
     }) as unknown as typeof fetch;
-    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
+
+    // run 1: both jobs scored (keyword fallback "react" hit → 75 ≥ 70) and sent
+    await runPipeline({ db, env: TEST_ENV, fetchFn: jobsFetch(2) }, [{ type: "remotive" }], BASE_CONFIG, "12345");
+
+    // simulate a cap-overflow: one scored job's user_jobs row vanishes → it is "unseen" again
+    await db.prepare(`DELETE FROM user_jobs WHERE job_hash = (SELECT job_hash FROM user_jobs LIMIT 1)`).run();
+    const before = await db.prepare(`SELECT COUNT(*) n FROM user_jobs WHERE sent_at IS NOT NULL`).first<{ n: number }>();
+
+    // run 2: deferred job must now be re-scored and sent (no first_seen_at time filter dropping it)
+    await runPipeline({ db, env: TEST_ENV, fetchFn: jobsFetch(2) }, [{ type: "remotive" }], BASE_CONFIG, "12345");
+    const after = await db.prepare(`SELECT COUNT(*) n FROM user_jobs WHERE sent_at IS NOT NULL`).first<{ n: number }>();
+    expect(after!.n).toBeGreaterThan(before!.n);
+  });
+
+  it("source failure marks batch partial, not failed", async () => {
+    const badSource = vi.fn().mockImplementation((url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes("remotive")) return Promise.resolve(new Response("err", { status: 500 }));
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    }) as unknown as typeof fetch;
+    const result = await runPipeline({ db, env: TEST_ENV, fetchFn: badSource }, [{ type: "remotive" }], BASE_CONFIG, "12345");
+    expect(result.status).toBe("partial");
+    expect(result.sourcesFailed).toBe(1);
+    expect(result.jobsFound).toBe(0);
+  });
+
+  it("zero specs → ok with zero everything", async () => {
+    const result = await runPipeline({ db, env: TEST_ENV, fetchFn: pipelineFetch() }, [], BASE_CONFIG, "12345");
     expect(result.status).toBe("ok");
-    // 1 explicit remotive + 6 rotating boards (new 40/40/20 mix: 3 gh + 3 sr + 0 lever)
-    const boardCalls = seen.filter((u) => u.includes("boards-api.greenhouse.io") || u.includes("api.lever.co") || u.includes("api.smartrecruiters.com"));
-    expect(boardCalls).toHaveLength(6);
-    expect(seen.filter((u) => u.includes("remotive.com"))).toHaveLength(1);
+    expect(result.jobsFound).toBe(0);
   });
-
-  it("rotateBoards count 20 → GH 8 / SR 8 / Lever 3 (cap leaves 19 slots after explicit remotive)", async () => {
-    await db.prepare(`UPDATE configs SET filters = ? WHERE user_id = 'owner'`).bind(
-      JSON.stringify({ rotateBoards: { enabled: true, count: 20 } })
-    ).run();
-    const seen: string[] = [];
-    const fetchFn = vi.fn().mockImplementation((url: string | URL | Request) => {
-      const u = String(url);
-      seen.push(u);
-      const gh = { jobs: [{ title: "React Dev", absolute_url: "https://x.co/1", location: { name: "Remote" }, updated_at: "2026-09-01T10:00:00Z", content: "" }] };
-      const lv = [{ text: "React Dev", hostedUrl: "https://x.co/2", categories: { location: "Remote" }, createdAt: 1725148800000, descriptionPlain: "Great" }];
-      const sr = { content: [{ id: "1", name: "React Dev", releasedDate: "2026-09-01T10:00:00Z", location: { fullLocation: "Remote" } }] };
-      const rem = { jobs: [{ url: "https://x.co/3", title: "React Dev", company_name: "Acme", candidate_required_location: "Remote", salary: "", publication_date: "2026-09-01T10:00:00Z", description: "<p>Great</p>" }] };
-      let body: unknown;
-      if (u.includes("greenhouse")) body = gh;
-      else if (u.includes("lever.co")) body = lv;
-      else if (u.includes("smartrecruiters")) body = sr;
-      else if (u.includes("remotive")) body = rem;
-      else body = { ok: true };
-      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
-    }) as unknown as typeof fetch;
-    const result = await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn });
-    expect(result.status).toBe("ok");
-    expect(seen.filter((u) => u.includes("boards-api.greenhouse.io"))).toHaveLength(8);
-    expect(seen.filter((u) => u.includes("api.smartrecruiters.com"))).toHaveLength(8);
-    expect(seen.filter((u) => u.includes("api.lever.co"))).toHaveLength(3);
-  });
-
-  it("rotateBoards respects MAX_SOURCES_PER_RUN cap (explicit + rotation ≤ 20)", async () => {
-    await db.prepare(`UPDATE configs SET filters = ? WHERE user_id = 'owner'`).bind(
-      JSON.stringify({ rotateBoards: { enabled: true, count: 20 } })
-    ).run();
-    const seen: string[] = [];
-    const fetchFn = vi.fn().mockImplementation((url: string | URL | Request) => {
-      const u = String(url);
-      seen.push(u);
-      const gh = { jobs: [] };
-      const lv: unknown[] = [];
-      const sr = { content: [] };
-      const rem = { jobs: [] };
-      let body: unknown;
-      if (u.includes("greenhouse")) body = gh;
-      else if (u.includes("lever.co")) body = lv;
-      else if (u.includes("smartrecruiters")) body = sr;
-      else if (u.includes("remotive")) body = rem;
-      else body = { ok: true };
-      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
-    }) as unknown as typeof fetch;
-    // maxSources 20: 1 explicit remotive + 19 rotating
-    await runUser({ db, env: { GROQ_API_KEY: "test", TELEGRAM_BOT_TOKEN: "test" }, fetchFn, maxSources: 20 });
-    const boardCalls = seen.filter((u) => u.includes("boards-api.greenhouse.io") || u.includes("api.lever.co") || u.includes("api.smartrecruiters.com"));
-    expect(boardCalls).toHaveLength(19);
-    expect(seen.filter((u) => u.includes("remotive.com"))).toHaveLength(1);
-  });
-
 });
