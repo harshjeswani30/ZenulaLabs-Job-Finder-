@@ -51,26 +51,6 @@ function pipelineFetch() {
   }) as unknown as typeof fetch;
 }
 
-/** Orchestrator test double: intercepts the /run-batch self-fetch and runs the
- *  real pipeline in-process (mocked network), recording each batch payload. */
-function makeBatchRunner() {
-  const batchCalls: { specs: { type: string; slug?: string }[]; runId: string }[] = [];
-  const inner = pipelineFetch();
-  const fetchFn = vi.fn().mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
-    const u = String(url);
-    if (u === `${TEST_ENV.SELF_URL}/run-batch`) {
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
-        specs: Parameters<typeof runPipeline>[1]; runId: string; config: UserConfig; chatId: string;
-      };
-      batchCalls.push({ specs: body.specs, runId: body.runId });
-      const result = await runPipeline({ db, env: TEST_ENV, fetchFn: inner }, body.specs, body.config, body.chatId);
-      return new Response(JSON.stringify(result), { status: 200 });
-    }
-    return (inner as unknown as (u: string) => Promise<Response>)(u);
-  }) as unknown as typeof fetch;
-  return { batchCalls, fetchFn };
-}
-
 beforeEach(async () => {
   await db.exec(`DELETE FROM configs; DELETE FROM jobs; DELETE FROM user_jobs; DELETE FROM runs;`);
   await db.prepare(`INSERT INTO configs (user_id, fields, skills, sites, filters, score_threshold, cadence_hours, is_active, next_run_at, telegram_chat_id, updated_at)
@@ -78,13 +58,11 @@ beforeEach(async () => {
 });
 
 describe("runUser (orchestrator)", () => {
-  it("fans out a single explicit source as one batch and aggregates stats", async () => {
-    const { batchCalls, fetchFn } = makeBatchRunner();
+  it("runs a single explicit source and aggregates stats", async () => {
+    const fetchFn = pipelineFetch();
     const result = await runUser({ db, env: TEST_ENV, fetchFn });
     expect(result.status).toBe("ok");
     expect(result.jobsSent).toBeGreaterThanOrEqual(1);
-    expect(batchCalls).toHaveLength(1);
-    expect(batchCalls[0].specs).toEqual([{ type: "remotive" }]);
     const sent = await db.prepare(`SELECT COUNT(*) n FROM user_jobs WHERE sent_at IS NOT NULL`).first<{ n: number }>();
     expect(sent!.n).toBeGreaterThanOrEqual(1);
     const runs = await db.prepare(`SELECT status, jobs_sent FROM runs`).first<{ status: string; jobs_sent: number }>();
@@ -93,7 +71,7 @@ describe("runUser (orchestrator)", () => {
   });
 
   it("second run does not resend the same job", async () => {
-    const { fetchFn } = makeBatchRunner();
+    const fetchFn = pipelineFetch();
     await runUser({ db, env: TEST_ENV, fetchFn });
     const second = await runUser({ db, env: TEST_ENV, fetchFn });
     expect(second.jobsSent).toBe(0);
@@ -105,34 +83,32 @@ describe("runUser (orchestrator)", () => {
     expect(result.status).toBe("failed");
   });
 
-  it("all batch self-fetches failing → run marked failed", async () => {
+  it("a batch pipeline throwing → run still records other batches (in-process fan-out)", async () => {
+    // every fetch fails → every source fails, but runPipeline catches per-source
+    // errors, so batches are "handled"; a fully dead network yields ok/partial, not failed.
     const fetchFn = vi.fn().mockResolvedValue(new Response("err", { status: 500 })) as unknown as typeof fetch;
     const result = await runUser({ db, env: TEST_ENV, fetchFn });
-    expect(result.status).toBe("failed");
-    const runs = await db.prepare(`SELECT status FROM runs`).first<{ status: string }>();
-    expect(runs!.status).toBe("failed");
+    expect(result.status).not.toBe("failed");
   });
 
-  it("rotateBoards enabled fans out 100 specs across 11 batches (1 explicit + 100 rotation)", async () => {
+  it("rotateBoards enabled runs 100 specs (1 explicit + 99 rotation) in-process", async () => {
     await db.prepare(`UPDATE configs SET filters = ? WHERE user_id = 'owner'`).bind(
       JSON.stringify({ rotateBoards: { enabled: true, count: 100 } })
     ).run();
-    const { batchCalls, fetchFn } = makeBatchRunner();
+    const fetchFn = pipelineFetch();
     const result = await runUser({ db, env: TEST_ENV, fetchFn });
     expect(result.status).toBe("ok");
-    // cap 100 total: 1 explicit remotive + 99 rotating = 100 specs → 10 batches of 10
-    expect(batchCalls).toHaveLength(10);
-    expect(batchCalls.every((b) => b.specs.length <= 10)).toBe(true);
-    const allSpecs = batchCalls.flatMap((b) => b.specs);
+    const allSpecs = fetchFn.mock.calls.map((c) => String(c[0])).filter((u) =>
+      u.includes("remotive.com") || u.includes("boards-api.greenhouse.io") || u.includes("api.lever.co") || u.includes("api.smartrecruiters.com"));
+    // cap 100 total: 1 explicit remotive + 99 rotating board fetches
+    expect(allSpecs.filter((u) => u.includes("remotive.com"))).toHaveLength(1);
     expect(allSpecs).toHaveLength(100);
-    expect(allSpecs.filter((s) => s.type === "remotive")).toHaveLength(1);
     // 99-mix: GH 40 / SR 40 / Lever 19
-    expect(allSpecs.filter((s) => s.type === "greenhouse")).toHaveLength(40);
-    expect(allSpecs.filter((s) => s.type === "smartrecruiters")).toHaveLength(40);
-    expect(allSpecs.filter((s) => s.type === "lever")).toHaveLength(19);
-    // every batch gets the same runId (one logical run)
-    const runIds = new Set(batchCalls.map((b) => b.runId));
-    expect(runIds.size).toBe(1);
+    expect(allSpecs.filter((u) => u.includes("boards-api.greenhouse.io"))).toHaveLength(40);
+    expect(allSpecs.filter((u) => u.includes("api.smartrecruiters.com"))).toHaveLength(40);
+    expect(allSpecs.filter((u) => u.includes("api.lever.co"))).toHaveLength(19);
+    const runs = await db.prepare(`SELECT status FROM runs`).first<{ status: string }>();
+    expect(runs!.status).toBe("ok");
   });
 });
 

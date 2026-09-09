@@ -23,6 +23,7 @@ export interface BatchResult {
   jobsSent: number;
   deferredScored: number; // unseen jobs left for the next run (scored cap overflow)
   error?: string;
+  sourceErrors?: string[]; // first few per-source failure reasons, for diagnostics
 }
 
 const BATCH_SIZE = 10;          // source specs per /run-batch invocation (50-subrequest budget)
@@ -53,15 +54,23 @@ export async function runPipeline(
   const fetchFn = deps.fetchFn ?? fetch;
   let sourcesOk = 0, sourcesFailed = 0;
   const collected: NormalizedJob[] = [];
+  const sourceErrors: string[] = [];
   for (let i = 0; i < specs.length; i += 5) {
     const batch = specs.slice(i, i + 5);
     const results = await Promise.allSettled(batch.map(async (spec) => {
       const parser = getSourceParser(spec.type);
       return parser(spec, fetchFn);
     }));
-    for (const r of results) {
+    for (const [j, r] of results.entries()) {
       if (r.status === "fulfilled") { sourcesOk++; collected.push(...r.value); }
-      else sourcesFailed++;
+      else {
+        sourcesFailed++;
+        if (sourceErrors.length < 5) {
+          const why = r.reason instanceof Error ? r.reason.message : String(r.reason);
+          const id = batch[j]!.slug ?? batch[j]!.query ?? batch[j]!.type;
+          sourceErrors.push(`${id}: ${why.slice(0, 150)}`);
+        }
+      }
     }
   }
 
@@ -70,7 +79,7 @@ export async function runPipeline(
   for (const j of collected) unique.set(j.hash, j);
   const jobs = [...unique.values()];
   if (jobs.length === 0) {
-    return { status: sourcesFailed > 0 ? "partial" : "ok", sourcesOk, sourcesFailed, jobsFound: 0, jobsSent: 0, deferredScored: 0 };
+    return { status: sourcesFailed > 0 ? "partial" : "ok", sourcesOk, sourcesFailed, jobsFound: 0, jobsSent: 0, deferredScored: 0, sourceErrors: sourceErrors.length ? sourceErrors : undefined };
   }
 
   // D1 caps bound parameters per statement at 100 — chunk multi-row inserts below it.
@@ -94,7 +103,7 @@ export async function runPipeline(
   const unseenHashes = new Set(unseen.results.map((r) => r.hash));
   const unseenJobs = jobs.filter((j) => unseenHashes.has(j.hash));
   if (unseenJobs.length === 0) {
-    return { status: sourcesFailed > 0 ? "partial" : "ok", sourcesOk, sourcesFailed, jobsFound: jobs.length, jobsSent: 0, deferredScored: 0 };
+    return { status: sourcesFailed > 0 ? "partial" : "ok", sourcesOk, sourcesFailed, jobsFound: jobs.length, jobsSent: 0, deferredScored: 0, sourceErrors: sourceErrors.length ? sourceErrors : undefined };
   }
 
   // cap scoring per batch; overflow stays unseen and is scored on the next run
@@ -164,27 +173,28 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
     return { status: "ok", jobsSent: 0 };
   }
 
-  // Fan out in parallel batches — each /run-batch invocation gets its own
-  // subrequest budget (free plan caps a single invocation at 50 fetches).
+  // Run batches in-process, one wave at a time. The original design fanned out
+  // via a self-fetch to SELF_URL/run-batch — that dies in production with
+  // Cloudflare error 1042 (free Workers cannot await their own sub-invocations),
+  // so every production run failed with "all batches failed". Parallel waves
+  // keep most of the concurrency while a single invocation's fetch budget is
+  // spent across sequential waves.
   const batches: JobSourceSpec[][] = [];
   for (let i = 0; i < specs.length; i += BATCH_SIZE) batches.push(specs.slice(i, i + BATCH_SIZE));
-
-  const results = await Promise.allSettled(batches.map((batchSpecs) =>
-    fetchFn(`${deps.env.SELF_URL}/run-batch`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-internal-token": deps.env.INTERNAL_TOKEN },
-      body: JSON.stringify({ specs: batchSpecs, runId, config: { ...config, isActive: true }, chatId }),
-    })
-  ));
 
   let sourcesOk = 0, sourcesFailed = 0, jobsFound = 0, jobsSent = 0, deferredScored = 0;
   let anyPartial = false;
   const errors: string[] = [];
   let handled = 0;
-  for (const r of results) {
-    if (r.status !== "fulfilled") { anyPartial = true; continue; }
-    const body = await r.value.json().catch(() => null) as BatchResult | null;
-    if (!body || typeof body.sourcesOk !== "number") { anyPartial = true; continue; }
+  for (const [i, batchSpecs] of batches.entries()) {
+    let body: BatchResult;
+    try {
+      body = await runPipeline({ db: deps.db, env: deps.env, fetchFn }, batchSpecs, config, chatId);
+    } catch (err) {
+      anyPartial = true;
+      errors.push(`batch ${i}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
     handled++;
     sourcesOk += body.sourcesOk;
     sourcesFailed += body.sourcesFailed;
@@ -193,8 +203,10 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
     deferredScored += body.deferredScored ?? 0;
     if (body.status !== "ok") anyPartial = true;
     if (body.error) errors.push(body.error);
+    for (const se of body.sourceErrors ?? []) {
+      if (errors.length < 5 && !errors.includes(se)) errors.push(se);
+    }
   }
-  if (handled < batches.length) anyPartial = true;
   if (handled === 0) {
     const error = errors[0] ?? "all batches failed";
     await insertRun(deps.db, runId, userId, started, "failed", 0, 0, jobsFound, 0, error);
@@ -202,7 +214,9 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
   }
 
   const status = anyPartial ? "partial" : "ok";
-  await insertRun(deps.db, runId, userId, started, status, sourcesOk, sourcesFailed, jobsFound, jobsSent, errors[0]);
+  // prefer a source-level reason over generic batch noise for the runs table
+  const firstReason = errors.find((e) => !e.startsWith("batch ")) ?? errors[0];
+  await insertRun(deps.db, runId, userId, started, status, sourcesOk, sourcesFailed, jobsFound, jobsSent, firstReason);
   return { status, jobsSent };
 }
 

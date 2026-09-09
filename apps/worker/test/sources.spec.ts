@@ -58,6 +58,23 @@ describe("greenhouse parser", () => {
     expect(jobs[0].descriptionSnippet).toContain("Role");
     expect(jobs[0].source).toBe("greenhouse:acme");
   });
+  it("passes through HTML-entity content without base64 decoding (newer boards)", async () => {
+    const htmlEntityFixture = {
+      jobs: [
+        {
+          title: "Abuse Investigator",
+          absolute_url: "https://stripe.com/jobs/1",
+          location: { name: "Dublin" },
+          updated_at: "2026-09-04T14:12:20-04:00",
+          content: "&lt;h2&gt;Who we are&lt;/h2&gt; Stripe is a payments company",
+        },
+      ],
+    };
+    const jobs = await parseGreenhouse({ type: "greenhouse", slug: "stripe" } as never, jsonFetch(htmlEntityFixture));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].descriptionSnippet).toContain("Stripe is a payments company");
+    expect(jobs[0].descriptionSnippet).not.toContain("lt;h2");
+  });
   it("throws when slug missing", async () => {
     await expect(parseGreenhouse({ type: "greenhouse" } as never, jsonFetch(greenhouseFixture))).rejects.toThrow(/slug/);
   });

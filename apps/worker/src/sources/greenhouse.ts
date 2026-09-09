@@ -7,9 +7,17 @@ interface GhJob {
 }
 
 function decodeBase64(b64: string): string {
-  const bin = atob(b64.replace(/\s/g, ""));
-  try { return decodeURIComponent(Array.from(bin).map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("")); }
-  catch { return bin; }
+  // Greenhouse historically base64-encodes content=true bodies, but some
+  // boards now return HTML-entity text directly — atob() throws on that.
+  // Decode only when the value is actually valid base64.
+  const cleaned = b64.replace(/\s/g, "");
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) return b64;
+  try {
+    const bin = atob(cleaned);
+    return decodeURIComponent(Array.from(bin).map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join(""));
+  } catch {
+    return b64;
+  }
 }
 
 export const parseGreenhouse: SourceParser = async (spec, fetchFn): Promise<NormalizedJob[]> => {
