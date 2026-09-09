@@ -11,7 +11,10 @@ async function callLlm(apiKey: string, system: string, user: string, fetchFn: ty
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: 4000,
+      // gpt-oss is a reasoning model — without "low" it burns most of a small
+      // token budget on hidden thinking, truncating the actual JSON output.
+      reasoning_effort: "low",
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
@@ -49,9 +52,20 @@ export async function scoreJobsBatch(
 export async function parseResumeText(
   apiKey: string, resumeText: string, fetchFn: typeof fetch
 ): Promise<{ fields: string[]; skills: string[] }> {
-  const system = "Extract the candidate's job fields (e.g. 'Frontend', 'Data Engineering') and skills (technologies/tools) from a resume. " +
-    "Respond with ONLY JSON: {\"fields\":[...],\"skills\":[...]}.";
+  const system = [
+    "You are an exhaustive resume parser for a job-matching engine. Your output is the candidate's matching profile — missing an item means missed job matches, so capture EVERYTHING technical.",
+    "Sweep the ENTIRE document line by line: summary, experience bullets, project descriptions, and any skills/tech sections.",
+    '"fields": 3-10 job categories this person could be hired for. Short canonical title terms: "Full Stack", "Frontend", "Backend", "DevOps", "Data Engineering", "Data Analyst", "Machine Learning", "Mobile Development", "QA Engineering", "Site Reliability".',
+    '"skills": EVERY concrete technology, language, framework, library, database, cloud platform, and tool the candidate has used. Expect 30-60 items for a typical professional resume. Include items from skills sections AND items evidenced in experience/project bullets.',
+    "Rules:",
+    '- Canonical names: "PostgreSQL" not "postgres db"; "AWS" not "Amazon Web Services". Cloud services stay specific: "AWS Lambda", "AWS ECS" (not just AWS if specific services are mentioned).',
+    "- Include adjacent-but-real items: CI/CD tools (GitHub Actions), test frameworks (Vitest, Playwright), package/infra tools (Wrangler, Docker Compose), protocols (REST APIs, tRPC) when actually used.",
+    '- EXCLUDE: soft skills (communication, leadership), certifications, education, experience counts ("5 years"), and generic buzzwords (Agile, Scrum) unless tooling-related.',
+    "- Keep each item 1-4 words, Title Case, no duplicates.",
+    '- NEVER invent skills that are not in the document. A sparse resume yields few skills — do not pad.',
+    'Reply with ONLY this JSON, no markdown, no explanation: {"fields": ["..."], "skills": ["..."]}',
+  ].join("\n");
   const text = await callLlm(apiKey, system, resumeText.slice(0, 15000), fetchFn);
   const parsed = JSON.parse(text.replace(/```json|```/g, "").trim()) as { fields?: string[]; skills?: string[] };
-  return { fields: (parsed.fields ?? []).map(String).slice(0, 8), skills: (parsed.skills ?? []).map(String).slice(0, 25) };
+  return { fields: (parsed.fields ?? []).map(String).slice(0, 10), skills: (parsed.skills ?? []).map(String).slice(0, 60) };
 }
