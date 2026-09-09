@@ -8,8 +8,10 @@ interface SiteSpec {
     | "remotive" | "arbeitnow" | "remoteok"
     | "themuse" | "himalayas" | "jobicy" | "landingjobs"
     | "weworkremotely" | "berlinstartupjobs"
-    | "greenhouse" | "lever" | "smartrecruiters";
+    | "greenhouse" | "lever" | "smartrecruiters"
+    | "custom";
   slug?: string;
+  query?: string;
 }
 
 interface Config {
@@ -36,6 +38,14 @@ const SIMPLE_SITES: { type: SiteSpec["type"]; label: string }[] = [
 ];
 
 const CADENCE_OPTIONS = [1, 2, 3, 6, 12, 24];
+
+function hostLabelOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
 
 function Chip({
   label,
@@ -122,6 +132,8 @@ export default function ConfigForm() {
 
   const [boardType, setBoardType] = useState<"greenhouse" | "lever" | "smartrecruiters">("greenhouse");
   const [boardSlug, setBoardSlug] = useState("");
+  const [feedUrl, setFeedUrl] = useState("");
+  const [feedError, setFeedError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -179,6 +191,29 @@ export default function ConfigForm() {
     }
     setSites((prev) => [...prev, { type: boardType, slug }]);
     setBoardSlug("");
+  };
+
+  const addCustomFeed = () => {
+    const url = feedUrl.trim();
+    setFeedError(null);
+    if (!url) return;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      setFeedError("Valid URL daalo (https://... se shuru hone wala feed link)");
+      return;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      setFeedError("Sirf http/https URLs chalenge");
+      return;
+    }
+    if (sites.some((s) => s.type === "custom" && s.query === url)) {
+      setFeedUrl("");
+      return;
+    }
+    setSites((prev) => [...prev, { type: "custom", query: url }]);
+    setFeedUrl("");
   };
 
   const uploadResume = async (file: File) => {
@@ -366,7 +401,10 @@ export default function ConfigForm() {
         </div>
 
         <div className="mt-4">
-          <p className="mb-2 text-sm font-medium">Company boards (Greenhouse / Lever / SmartRecruiters)</p>
+          <p className="mb-1 text-sm font-medium">Company boards (Greenhouse / Lever / SmartRecruiters)</p>
+          <p className="mb-2 text-sm text-neutral-500">
+            Auto-rotate ON ho toh slugs bharna zaroori nahi — 1205 companies (808 Greenhouse + 217 SmartRecruiters + 180 Lever) khud cover ho jati he. Yahan slug sirf tab add karo jab koi specific company har run me chahiye.
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={boardType}
@@ -407,6 +445,52 @@ export default function ConfigForm() {
                   label={`${s.type}:${s.slug}`}
                   onRemove={() =>
                     setSites((prev) => prev.filter((x) => !(x.type === s.type && x.slug === s.slug)))
+                  }
+                />
+              ))}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <p className="mb-1 text-sm font-medium">Custom job feed (URL)</p>
+          <p className="mb-2 text-sm text-neutral-500">
+            Koi bhi job board ka RSS/Atom feed link — Remotive, WeWorkRemotely, company blogs, anything
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="url"
+              value={feedUrl}
+              placeholder="https://example.com/jobs.rss"
+              onChange={(e) => {
+                setFeedUrl(e.target.value);
+                setFeedError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addCustomFeed();
+                }
+              }}
+              className="min-w-[16rem] flex-1 rounded border border-neutral-300 bg-white px-3 py-1.5 text-sm"
+            />
+            <button
+              type="button"
+              onClick={addCustomFeed}
+              className="rounded bg-neutral-800 px-3 py-1.5 text-sm text-white hover:bg-neutral-700"
+            >
+              Add feed
+            </button>
+          </div>
+          {feedError && <p className="mt-1 text-sm text-red-600">{feedError}</p>}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {sites
+              .filter((s) => s.type === "custom")
+              .map((s) => (
+                <Chip
+                  key={`custom:${s.query}`}
+                  label={`🔗 ${hostLabelOf(s.query ?? "")}`}
+                  onRemove={() =>
+                    setSites((prev) => prev.filter((x) => !(x.type === "custom" && x.query === s.query)))
                   }
                 />
               ))}

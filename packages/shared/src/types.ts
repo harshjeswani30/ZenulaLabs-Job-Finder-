@@ -35,9 +35,10 @@ export interface JobSourceSpec {
     | "jobicy"
     | "landingjobs"
     | "weworkremotely"
-    | "berlinstartupjobs";
+    | "berlinstartupjobs"
+    | "custom";
   slug?: string;      // greenhouse/lever/smartrecruiters company slug
-  query?: string;     // adzuna search terms
+  query?: string;     // adzuna search terms / custom RSS-Atom feed URL
 }
 
 export interface ScoredJob {

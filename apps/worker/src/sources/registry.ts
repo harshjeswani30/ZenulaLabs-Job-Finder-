@@ -8,13 +8,14 @@ import { parseLever } from "./lever";
 import { parseSmartRecruiters } from "./smartrecruiters";
 import { parseWeWorkRemotely, parseBerlinStartupJobs } from "./rssBoards";
 import { parseTheMuse, parseHimalayas, parseJobicy, parseLandingJobs } from "./boardApis";
+import { parseCustomFeed } from "./customFeed";
 
 const PARSERS: Record<JobSourceSpec["type"], SourceParser | undefined> = {
   remotive: parseRemotive, arbeitnow: parseArbeitnow, remoteok: parseRemoteOK,
   greenhouse: parseGreenhouse, lever: parseLever, smartrecruiters: parseSmartRecruiters,
   weworkremotely: parseWeWorkRemotely, berlinstartupjobs: parseBerlinStartupJobs,
   themuse: parseTheMuse, himalayas: parseHimalayas, jobicy: parseJobicy,
-  landingjobs: parseLandingJobs, adzuna: undefined,
+  landingjobs: parseLandingJobs, adzuna: undefined, custom: parseCustomFeed,
 };
 
 export function getSourceParser(type: JobSourceSpec["type"]): SourceParser {
