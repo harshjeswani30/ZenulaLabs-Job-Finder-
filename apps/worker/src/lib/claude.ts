@@ -53,16 +53,17 @@ export async function parseResumeText(
   apiKey: string, resumeText: string, fetchFn: typeof fetch
 ): Promise<{ fields: string[]; skills: string[] }> {
   const system = [
-    "You are an exhaustive resume parser for a job-matching engine. Your output is the candidate's matching profile — missing an item means missed job matches, so capture EVERYTHING technical.",
-    "Sweep the ENTIRE document line by line: summary, experience bullets, project descriptions, and any skills/tech sections.",
-    '"fields": 3-10 job categories this person could be hired for. Short canonical title terms: "Full Stack", "Frontend", "Backend", "DevOps", "Data Engineering", "Data Analyst", "Machine Learning", "Mobile Development", "QA Engineering", "Site Reliability".',
-    '"skills": EVERY concrete technology, language, framework, library, database, cloud platform, and tool the candidate has used. Expect 30-60 items for a typical professional resume. Include items from skills sections AND items evidenced in experience/project bullets.',
+    "You are an exhaustive resume parser for a job-matching engine. Your output is the candidate's matching profile — missing an item means missed job matches, so capture EVERYTHING that could match a job posting.",
+    "Sweep the ENTIRE document line by line: summary, experience bullets, project descriptions, and skills sections.",
+    '"fields": 3-10 job categories/roles this person could genuinely be hired for, based on what the resume actually shows. You decide the right vocabulary for THIS candidate — a software engineer yields "Frontend", "Backend"; an AI annotator yields "Data Annotation", "Content Moderation", "AI Evaluation"; a designer yields "UI Design". Do not force tech categories onto non-tech resumes, and vice versa.',
+    '"skills": EVERY concrete capability the candidate has that a job posting would list as a requirement — technologies, tools, platforms, languages (including human languages at stated proficiency), methodologies, and specific domain expertise. For a typical resume expect 20-50 items; for a non-engineering resume, transferable evaluation/annotation/editorial skills ARE skills (e.g. "Data Annotation", "Quality Assurance", "Content Review", "Pairwise Comparison", "Reading Comprehension").',
     "Rules:",
-    '- Canonical names: "PostgreSQL" not "postgres db"; "AWS" not "Amazon Web Services". Cloud services stay specific: "AWS Lambda", "AWS ECS" (not just AWS if specific services are mentioned).',
-    "- Include adjacent-but-real items: CI/CD tools (GitHub Actions), test frameworks (Vitest, Playwright), package/infra tools (Wrangler, Docker Compose), protocols (REST APIs, tRPC) when actually used.",
-    '- EXCLUDE: soft skills (communication, leadership), certifications, education, experience counts ("5 years"), and generic buzzwords (Agile, Scrum) unless tooling-related.',
-    "- Keep each item 1-4 words, Title Case, no duplicates.",
-    '- NEVER invent skills that are not in the document. A sparse resume yields few skills — do not pad.',
+    "- YOU decide what counts as a skill for this candidate — extract what is actually there, not what a template says.",
+    "- Canonical names, Title Case, 1-5 words each, no duplicates.",
+    '- Include human languages with level when stated: "Hindi (Native)", "English (C1-C2)".',
+    "- Include tools/platforms named anywhere (OpenAI API, PostgreSQL, Figma...) and certifications' subject areas as skills (e.g. NPTEL Cloud/IoT/ML course → \"Cloud Computing\", \"IoT\", \"Machine Learning\").",
+    "- ONLY exclude: pure personality traits with no job-posting equivalent (e.g. \"Self-Motivated\", \"Reliable\"), education institution names, and experience counts (\"5 years\").",
+    "- NEVER invent anything not in the document; but DO rephrase resume phrasing into terms job postings use (\"Keen Eye for Detail\" → \"Attention to Detail\", \"Willingness to Learn New Platforms\" → \"Fast Learning\").",
     'Reply with ONLY this JSON, no markdown, no explanation: {"fields": ["..."], "skills": ["..."]}',
   ].join("\n");
   const text = await callLlm(apiKey, system, resumeText.slice(0, 15000), fetchFn);
