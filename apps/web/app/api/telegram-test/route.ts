@@ -1,4 +1,4 @@
-import { workerFetch } from "@/lib/worker";
+import { workerUserFetch, SessionError } from "@/lib/worker";
 
 export const dynamic = "force-dynamic";
 
@@ -8,12 +8,13 @@ export async function POST(req: Request) {
     if (!body.chatId || typeof body.chatId !== "string") {
       return Response.json({ error: "chatId required" }, { status: 400 });
     }
-    const r = await workerFetch("/telegram-test", {
+    const r = await workerUserFetch("/telegram-test", {
       method: "POST",
       body: JSON.stringify({ chatId: body.chatId }),
     });
     return Response.json(await r.json());
   } catch (err) {
+    if (err instanceof SessionError) return Response.json({ error: "not signed in" }, { status: 401 });
     return Response.json({ error: err instanceof Error ? err.message : "worker error" }, { status: 502 });
   }
 }

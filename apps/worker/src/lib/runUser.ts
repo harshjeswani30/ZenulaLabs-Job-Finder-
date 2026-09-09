@@ -9,6 +9,7 @@ export interface RunUserDeps {
   env: { GROQ_API_KEY: string; TELEGRAM_BOT_TOKEN: string; INTERNAL_TOKEN: string; SELF_URL: string };
   fetchFn?: typeof fetch;
   maxSources?: number;
+  userId?: string; // defaults to the legacy single-user row
 }
 
 export interface RunUserResult { status: "ok" | "partial" | "failed"; jobsSent: number; error?: string; }
@@ -24,16 +25,14 @@ export interface BatchResult {
   error?: string;
 }
 
-const USER_ID = "owner"; // MVP single user; Task 10 parameterizes
-
 const BATCH_SIZE = 10;          // source specs per /run-batch invocation (50-subrequest budget)
 const MAX_SCORED_PER_BATCH = 300; // 25-job Groq chunks → ≤12 scoring calls per batch
 
 interface ConfigRow extends Record<string, string | number | null> { telegram_chat_id: string | null }
 
-function loadConfig(cfgRow: ConfigRow): UserConfig {
+function loadConfig(cfgRow: ConfigRow, userId: string): UserConfig {
   return {
-    userId: USER_ID,
+    userId,
     fields: JSON.parse(String(cfgRow.fields)) as string[],
     skills: JSON.parse(String(cfgRow.skills)) as string[],
     sites: JSON.parse(String(cfgRow.sites)),
@@ -91,7 +90,7 @@ export async function runPipeline(
   const unseen = await deps.db.prepare(
     `SELECT j.hash FROM jobs j LEFT JOIN user_jobs uj ON uj.job_hash = j.hash AND uj.user_id = ?
      WHERE uj.job_hash IS NULL`
-  ).bind(USER_ID).all<{ hash: string }>();
+  ).bind(config.userId).all<{ hash: string }>();
   const unseenHashes = new Set(unseen.results.map((r) => r.hash));
   const unseenJobs = jobs.filter((j) => unseenHashes.has(j.hash));
   if (unseenJobs.length === 0) {
@@ -111,7 +110,7 @@ export async function runPipeline(
   for (let i = 0; i < scored.length; i += userJobsPerStmt) {
     const chunk = scored.slice(i, i + userJobsPerStmt);
     const values = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
-    const binds = chunk.flatMap((s) => [USER_ID, s.job.hash, now, null, s.score]);
+    const binds = chunk.flatMap((s) => [config.userId, s.job.hash, now, null, s.score]);
     insStmts.push(deps.db.prepare(`INSERT INTO user_jobs (user_id, job_hash, first_seen_at, sent_at, score) VALUES ${values}`).bind(...binds));
   }
   if (insStmts.length) await deps.db.batch(insStmts);
@@ -130,7 +129,7 @@ export async function runPipeline(
       return { status: "partial", sourcesOk, sourcesFailed, jobsFound: jobs.length, jobsSent: sent, deferredScored, error: message };
     }
     await deps.db.prepare(`UPDATE user_jobs SET sent_at = ? WHERE user_id = ? AND sent_at IS NULL AND score >= ?`)
-      .bind(now, USER_ID, config.scoreThreshold).run();
+      .bind(now, config.userId, config.scoreThreshold).run();
   }
 
   const status = sourcesFailed > 0 ? "partial" : "ok";
@@ -141,12 +140,13 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
   const fetchFn = deps.fetchFn ?? fetch;
   const started = Date.now();
   const runId = crypto.randomUUID();
+  const userId = deps.userId ?? "owner";
 
-  const cfgRow = await deps.db.prepare(`SELECT * FROM configs WHERE user_id = ?`).bind(USER_ID).first<ConfigRow>();
+  const cfgRow = await deps.db.prepare(`SELECT * FROM configs WHERE user_id = ?`).bind(userId).first<ConfigRow>();
   if (!cfgRow || Number(cfgRow.is_active) !== 1 || !cfgRow.telegram_chat_id) {
     return { status: "failed", jobsSent: 0, error: "no config/chat_id" };
   }
-  const config = loadConfig(cfgRow);
+  const config = loadConfig(cfgRow, userId);
   const chatId = String(cfgRow.telegram_chat_id);
 
   const cap = deps.maxSources ?? 100;
@@ -160,7 +160,7 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
     if (rotCount > 0) specs = [...explicitSpecs, ...defaultRotationSpecs(rotCount)];
   }
   if (specs.length === 0) {
-    await insertRun(deps.db, runId, started, "ok", 0, 0, 0, 0, undefined);
+    await insertRun(deps.db, runId, userId, started, "ok", 0, 0, 0, 0, undefined);
     return { status: "ok", jobsSent: 0 };
   }
 
@@ -197,17 +197,17 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
   if (handled < batches.length) anyPartial = true;
   if (handled === 0) {
     const error = errors[0] ?? "all batches failed";
-    await insertRun(deps.db, runId, started, "failed", 0, 0, jobsFound, 0, error);
+    await insertRun(deps.db, runId, userId, started, "failed", 0, 0, jobsFound, 0, error);
     return { status: "failed", jobsSent: 0, error };
   }
 
   const status = anyPartial ? "partial" : "ok";
-  await insertRun(deps.db, runId, started, status, sourcesOk, sourcesFailed, jobsFound, jobsSent, errors[0]);
+  await insertRun(deps.db, runId, userId, started, status, sourcesOk, sourcesFailed, jobsFound, jobsSent, errors[0]);
   return { status, jobsSent };
 }
 
-async function insertRun(db: D1Database, id: string, startedAt: number, status: string, ok: number, failed: number, found: number, sent: number, error: string | undefined) {
+async function insertRun(db: D1Database, id: string, userId: string, startedAt: number, status: string, ok: number, failed: number, found: number, sent: number, error: string | undefined) {
   await db.prepare(
-    `INSERT INTO runs (id, user_id, started_at, status, sources_ok, sources_failed, jobs_found, jobs_sent, error, duration_ms) VALUES (?, 'owner', ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, startedAt, status, ok, failed, found, sent, error ?? null, Date.now() - startedAt).run();
+    `INSERT INTO runs (id, user_id, started_at, status, sources_ok, sources_failed, jobs_found, jobs_sent, error, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, userId, startedAt, status, ok, failed, found, sent, error ?? null, Date.now() - startedAt).run();
 }

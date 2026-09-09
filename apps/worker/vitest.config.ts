@@ -15,6 +15,7 @@ export default defineWorkersConfig(async () => {
             bindings: {
               TEST_MIGRATIONS: migrations,
               INTERNAL_TOKEN: "test-token",
+              AUTH_SECRET: "test-auth-secret",
               GROQ_API_KEY: "test",
               TELEGRAM_BOT_TOKEN: "test",
               // Deliberately non-routable: /run-user orchestrates by self-fetching

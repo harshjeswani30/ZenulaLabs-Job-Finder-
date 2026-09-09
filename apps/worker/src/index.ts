@@ -12,7 +12,7 @@ export default {
       await env.DB.prepare(`UPDATE configs SET next_run_at = ? WHERE user_id = ?`).bind(row.next_run_at + row.cadence_hours * 3_600_000, row.user_id).run();
       ctx.waitUntil(fetch(`${env.SELF_URL}/run-user`, {
         method: "POST",
-        headers: { "x-internal-token": env.INTERNAL_TOKEN },
+        headers: { "x-internal-token": env.INTERNAL_TOKEN, "x-user-id": row.user_id },
       }).catch(() => {}));
     }
   },

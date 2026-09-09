@@ -3,6 +3,7 @@ export interface Env {
   GROQ_API_KEY: string;
   TELEGRAM_BOT_TOKEN: string;
   INTERNAL_TOKEN: string;
+  AUTH_SECRET: string;
   SCORE_THRESHOLD_DEFAULT: string;
   SELF_URL: string;
 }
