@@ -5,9 +5,6 @@ aircall
 analyticpartners
 anchorage
 anybotics
-aqemia
-arcteryx
-arraylabs
 arrivelogistics
 artera
 asapp-2
@@ -132,8 +129,6 @@ rangeenergy
 rapidmicrobio
 redcanyonsoftware
 redoxengine
-regal
-relayrobotics
 revefi
 revinate
 safe

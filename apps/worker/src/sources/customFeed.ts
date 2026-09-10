@@ -24,10 +24,21 @@ export const parseCustomFeed: SourceParser = async (
   if (!url || !isValidCustomFeedUrl(url)) {
     throw new Error(`custom feed: missing or invalid URL (got "${url ?? ""}")`);
   }
+  // Native board URLs belong in their own source type — the raw HTML of a board
+  // page has no job items; only its API does. Point the user at the right feature.
+  const leverMatch = url.match(/^https?:\/\/(?:jobs\.)?lever\.co\/([^/?#]+)/i);
+  const ghMatch = url.match(/^https?:\/\/(?:boards\.)?greenhouse\.io\/(?:v1\/boards\/)?([^/?#]+)/i);
+  if (leverMatch) throw new Error(`custom feed: Lever board URL — add it as a company board with slug "${leverMatch[1]}" instead`);
+  if (ghMatch) throw new Error(`custom feed: Greenhouse board URL — add it as a company board with slug "${ghMatch[1]}" instead`);
   const res = await fetchFn(url, { headers: FEED_HEADERS });
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
   const xml = await res.text();
 
+  // sanity: an RSS/Atom feed must look like XML with items — an HTML page would
+  // silently yield 0 jobs, so fail loudly instead.
+  if (!/<(rss|feed|channel)[\s>]/i.test(xml.slice(0, 2000)) && !/<item[\s>]|<entry[\s>]/i.test(xml)) {
+    throw new Error(`custom feed: URL did not return an RSS/Atom feed (HTML page? job feeds end in .rss/.xml or /feed)`);
+  }
   const items = parseRssItems(xml);
   const label = spec.slug?.trim() || hostLabel(url);
   return Promise.all(items.map((it) =>

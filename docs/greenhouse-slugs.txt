@@ -1,5 +1,4 @@
 abnormalsecurity
-absci
 accela
 accuweather
 acilearning
@@ -25,11 +24,9 @@ adyen
 aec
 aechelontechnology
 aegisventures
-aerospike
 aestudio
 aevexaerospace
 affinidi
-affinity
 affirm
 afresh
 aftership
@@ -52,7 +49,6 @@ airsculpt
 airspace
 airtable
 airtrunk
-aiserajobs
 aisquared
 akayshaenergy
 akidolabs
@@ -73,7 +69,6 @@ allinc
 alloy
 allwebleads
 allybehaviorcenters
-alma
 aloyoga
 alpaca
 alphafmc
@@ -81,7 +76,6 @@ alphafmcroles
 alphagrepsecurities
 alphasense
 alphasenseindia
-alt
 altanaai
 altentechnologyusa
 altium
@@ -94,7 +88,6 @@ alveole
 alxafrica
 amaehealth
 amarok
-ambiententerprises
 amca
 amendconsulting
 americancapitalgroup
@@ -151,7 +144,6 @@ atoms
 attentive
 augury
 aura
-aurorainnovation
 avantus
 avride
 axiom
@@ -161,7 +153,6 @@ bandwidth
 banyaninfrastructure
 beam
 beamtherapeutics
-benevity
 betterhelp
 betterment
 bicyclehealth
@@ -183,7 +174,6 @@ botauto
 branch
 braze
 brex
-brooklinen
 builder
 buildkite
 buildops
@@ -195,7 +185,6 @@ c6bank
 cabify
 calendly
 cameo
-camusenergy
 carbon
 carbonrobotics
 cargomatic
@@ -206,8 +195,6 @@ carta
 carvana
 celonis
 censys
-cerebral
-cerebrassystems
 chainguard
 chaosindustries
 chargepoint
@@ -222,7 +209,6 @@ clara
 classpass
 clear
 cleo
-clickhouse
 cloudflare
 cloverhealth
 clutch
@@ -258,9 +244,7 @@ databricks
 datacamp
 datadog
 daybreakgames
-dbtlabsinc
 dealpath
-deepmind
 defenseunicorns
 degreed
 descope
@@ -272,7 +256,6 @@ disco
 discord
 divergent
 dollarshaveclub
-doordash
 dorsia
 doximity
 dremio
@@ -297,7 +280,6 @@ energyhub
 energysolutions
 epicgames
 epirus
-esusu
 etchedai
 ethos
 ethoslife
@@ -305,14 +287,12 @@ everlane
 everlaw
 exiger
 expel
-expressvpn
 extend
 extrahopnetworks
 ezra
 factorialenergy
 faire
 fairmarkit
-fal
 falconx
 fanduel
 faradayfuture
@@ -328,7 +308,6 @@ figure
 figureai
 fingerprint
 fireblocks
-fireworksai
 firsthand
 fivetran
 flashfood
@@ -339,7 +318,6 @@ flohealth
 forbes
 form3
 formationbio
-formbio
 formhealth
 formic
 formlabs
@@ -363,7 +341,6 @@ ghost
 ginkgobioworks
 gitlab
 gleanwork
-glossgenius
 glossier
 gocardless
 gofundme
@@ -385,7 +362,6 @@ hanwharenewables
 happymoney
 harrys
 hawkeye360
-headway
 healthjoy
 hellofresh
 helsing
@@ -445,25 +421,20 @@ lattice
 launchdarkly
 ledgy
 legion
-letsgetchecked
 lightmatter
 lithic
 locusrobotics
 logicgate
 lookout
-loop
 lucidmotors
 lunarenergy
 lyft
 mabl
 mark43
 markforged
-marqeta
 marvelfusion
 masterclass
-materialize
 matic
-maven
 mavenclinic
 maymobility
 mediasmart
@@ -498,7 +469,6 @@ nanit
 narvar
 natera
 nationalpublicradioinc
-nauto
 nayya
 nebius
 neonaerospace
@@ -534,8 +504,6 @@ onemedical
 onenergy
 onetrust
 onrunning
-opendoor
-openly
 openspace
 opentable
 operationscareers
@@ -570,17 +538,14 @@ pathrobotics
 pathward
 paynearmeinc
 payoneer
-paystack
 peakenergy
 peloton
 pendo
 perpay
-phonepe
 pieinsurance
 pinterest
 pivotbio
 pixability
-plaid
 planetscale
 pluspower
 pokemoncareers
@@ -607,7 +572,6 @@ qventus
 rampnetwork
 range
 razorpaysoftwareprivatelimited
-recharge
 recordedfuture
 recursionpharmaceuticals
 reddit
@@ -623,7 +587,6 @@ riskified
 rithum
 ritual
 riverlane
-robinhoodjobs
 roblox
 rocketlab
 rocketlawyer
@@ -632,7 +595,6 @@ roku
 rondoenergy
 roofstock
 ruggable
-runpod
 runwise
 saatva
 salesloft
@@ -735,7 +697,6 @@ togetherai
 toogoodtogo
 toradex
 torcrobotics
-transcarent
 transmitsecurity
 tripactions
 trueanomalyinc
@@ -754,12 +715,10 @@ udacity
 udemy
 udio
 ujet
-underdogfantasy
 uniteus
 unqork
 unybrands
 upgrade
-upside
 upstart
 ursamajor
 valencelabs

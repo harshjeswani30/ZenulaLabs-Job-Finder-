@@ -2,7 +2,7 @@ import type { JobSourceSpec } from "@jobfinder/shared";
 import { GREENHOUSE_SLUGS, LEVER_SLUGS, SMARTRECRUITERS_SLUGS } from "../sources/catalog";
 
 /** Rotating company-board batches: every run picks a different slice of the
- * 1205-company catalog, so each company gets checked roughly once per
+ * 1159-company catalog, so each company gets checked roughly once per
  * (catalogSize / perRunCount) hours without any DB state — the offset is
  * derived deterministically from the epoch hour. */
 
@@ -31,13 +31,13 @@ export function currentRotationOffset(): number {
 
 /** The default rotation mix appended to explicit user sources.
  *  Split favors the two big catalogs (Greenhouse, SmartRecruiters) so the
- *  full 1205-company set cycles faster: 20 boards/run ≈ 60 runs ≈ 2.5 days
+ *  full 1159-company set cycles faster: 20 boards/run ≈ 60 runs ≈ 2.5 days
  *  to cover every company at a 1-hour cadence. */
 export function defaultRotationSpecs(count = 20): JobSourceSpec[] {
   const offset = currentRotationOffset();
-  const gh = Math.ceil(count * 0.4);   // 8 of 20 — 808-company catalog
+  const gh = Math.ceil(count * 0.4);   // 8 of 20 — 767-company catalog
   const sr = Math.ceil(count * 0.4);   // 8 of 20 — 217-company catalog
-  const lv = count - gh - sr;          // 4 of 20 — 180-company catalog
+  const lv = count - gh - sr;          // 4 of 20 — 175-company catalog
   return [
     ...getRotatingSpecs("greenhouse", offset, gh),
     ...getRotatingSpecs("smartrecruiters", offset + 400, sr),

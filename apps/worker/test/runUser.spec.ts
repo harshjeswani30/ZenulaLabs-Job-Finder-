@@ -91,7 +91,7 @@ describe("runUser (orchestrator)", () => {
     expect(result.status).not.toBe("failed");
   });
 
-  it("rotateBoards enabled runs 100 specs (1 explicit + 99 rotation) in-process", async () => {
+  it("rotateBoards clamps to the 25-spec free-plan subrequest budget", async () => {
     await db.prepare(`UPDATE configs SET filters = ? WHERE user_id = 'owner'`).bind(
       JSON.stringify({ rotateBoards: { enabled: true, count: 100 } })
     ).run();
@@ -100,13 +100,13 @@ describe("runUser (orchestrator)", () => {
     expect(result.status).toBe("ok");
     const allSpecs = fetchFn.mock.calls.map((c) => String(c[0])).filter((u) =>
       u.includes("remotive.com") || u.includes("boards-api.greenhouse.io") || u.includes("api.lever.co") || u.includes("api.smartrecruiters.com"));
-    // cap 100 total: 1 explicit remotive + 99 rotating board fetches
+    // 25 total even though the user asked for 100: 1 explicit + 24 rotating
     expect(allSpecs.filter((u) => u.includes("remotive.com"))).toHaveLength(1);
-    expect(allSpecs).toHaveLength(100);
-    // 99-mix: GH 40 / SR 40 / Lever 19
-    expect(allSpecs.filter((u) => u.includes("boards-api.greenhouse.io"))).toHaveLength(40);
-    expect(allSpecs.filter((u) => u.includes("api.smartrecruiters.com"))).toHaveLength(40);
-    expect(allSpecs.filter((u) => u.includes("api.lever.co"))).toHaveLength(19);
+    expect(allSpecs).toHaveLength(25);
+    // 24-mix: GH ceil(24*.4)=10 / SR 10 / Lever 4
+    expect(allSpecs.filter((u) => u.includes("boards-api.greenhouse.io"))).toHaveLength(10);
+    expect(allSpecs.filter((u) => u.includes("api.smartrecruiters.com"))).toHaveLength(10);
+    expect(allSpecs.filter((u) => u.includes("api.lever.co"))).toHaveLength(4);
     const runs = await db.prepare(`SELECT status FROM runs`).first<{ status: string }>();
     expect(runs!.status).toBe("ok");
   });

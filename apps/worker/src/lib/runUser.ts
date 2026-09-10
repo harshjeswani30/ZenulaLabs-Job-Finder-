@@ -26,8 +26,14 @@ export interface BatchResult {
   sourceErrors?: string[]; // first few per-source failure reasons, for diagnostics
 }
 
-const BATCH_SIZE = 10;          // source specs per /run-batch invocation (50-subrequest budget)
-const MAX_SCORED_PER_BATCH = 300; // 25-job Groq chunks → ≤12 scoring calls per batch
+const BATCH_SIZE = 10;          // source specs per wave of parallel fetches
+const MAX_SCORED_PER_BATCH = 150; // 25-job Groq chunks → ≤6 scoring calls per batch
+// Free Workers cap a single invocation at 50 subrequests (external fetches),
+// and awaiting self-invocations is banned (CF error 1042), so one /run-user
+// can never exceed this many source fetches + scoring + Telegram sends.
+// Budget: 25 source fetches + 3 batches × 6 Groq calls + a few sends ≈ 50.
+// Rotation keeps catalog coverage going across hourly runs (~29h full cycle).
+const MAX_SPECS_PER_RUN = 25;
 
 interface ConfigRow extends Record<string, string | number | null> { telegram_chat_id: string | null }
 
@@ -158,9 +164,9 @@ export async function runUser(deps: RunUserDeps): Promise<RunUserResult> {
   const config = loadConfig(cfgRow, userId);
   const chatId = String(cfgRow.telegram_chat_id);
 
-  const cap = deps.maxSources ?? 100;
+  const cap = Math.min(deps.maxSources ?? 100, MAX_SPECS_PER_RUN);
   // Explicit user sites first; rotateBoards (via config.filters) appends a rotating
-  // slice of the 1205-company catalog up to the cap. Default 100 companies/run.
+  // slice of the 1159-company catalog up to the cap. Default 100 companies/run.
   const filters = config.filters as { rotateBoards?: { enabled?: boolean; count?: number } };
   const explicitSpecs = config.sites.slice(0, cap);
   let specs = explicitSpecs;

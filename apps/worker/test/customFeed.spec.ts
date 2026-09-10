@@ -84,4 +84,17 @@ describe("parseCustomFeed", () => {
       parseCustomFeed({ type: "custom", query: "https://acme.example/feed" }, xmlFetch("nope", 404))
     ).rejects.toThrow(/404/);
   });
+
+  it("redirects lever board URLs to the company-board feature with a hint", async () => {
+    await expect(
+      parseCustomFeed({ type: "custom", query: "https://jobs.lever.co/rws" }, xmlFetch(RSS_XML))
+    ).rejects.toThrow(/slug "rws"/);
+  });
+
+  it("rejects plain HTML pages that are not feeds", async () => {
+    const html = "<!DOCTYPE html><html><body>jobs page</body></html>";
+    await expect(
+      parseCustomFeed({ type: "custom", query: "https://acme.example/jobs" }, xmlFetch(html))
+    ).rejects.toThrow(/did not return an RSS\/Atom feed/);
+  });
 });

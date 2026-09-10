@@ -124,7 +124,7 @@ export default function ConfigForm() {
   const [skills, setSkills] = useState<string[]>([]);
   const [sites, setSites] = useState<SiteSpec[]>([]);
   const [rotateBoards, setRotateBoards] = useState(false);
-  const [rotateCount, setRotateCount] = useState(100);
+  const [rotateCount, setRotateCount] = useState(25);
   const [scoreThreshold, setScoreThreshold] = useState(70);
   const [cadenceHours, setCadenceHours] = useState(1);
   const [chatId, setChatId] = useState("");
@@ -158,7 +158,7 @@ export default function ConfigForm() {
       setSkills(cfg.skills ?? []);
       setSites(cfg.sites ?? []);
       setRotateBoards(cfg.filters?.rotateBoards?.enabled ?? false);
-      setRotateCount(cfg.filters?.rotateBoards?.count ?? 100);
+      setRotateCount(Math.min(cfg.filters?.rotateBoards?.count ?? 25, 25));
       setScoreThreshold(cfg.scoreThreshold ?? 70);
       setCadenceHours(cfg.cadenceHours ?? 1);
       setChatId(cfg.telegramChatId ?? "");
@@ -403,7 +403,7 @@ export default function ConfigForm() {
         <div className="mt-4">
           <p className="mb-1 text-sm font-medium">Company boards (Greenhouse / Lever / SmartRecruiters)</p>
           <p className="mb-2 text-sm text-neutral-500">
-            Auto-rotate ON ho toh slugs bharna zaroori nahi — 1205 companies (808 Greenhouse + 217 SmartRecruiters + 180 Lever) khud cover ho jati he. Yahan slug sirf tab add karo jab koi specific company har run me chahiye.
+            Auto-rotate ON ho toh slugs bharna zaroori nahi — 1159 companies (767 Greenhouse + 217 SmartRecruiters + 175 Lever) khud cover ho jati he. Yahan slug sirf tab add karo jab koi specific company har run me chahiye.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -508,7 +508,7 @@ export default function ConfigForm() {
             <span className="font-medium">Auto-rotate company boards</span>
           </label>
           <p className="mt-1 mb-2 text-sm text-neutral-500">
-            Har run me 1205-company catalog se alag companies check hoti he — 100/run pe poora catalog ~12 ghante me cover ho jata he
+            Har run me 1159-company catalog se alag companies check hoti he — 25/run pe poora catalog ~46 ghante me cover ho jata he
           </p>
           {rotateBoards && (
             <div className="flex items-center gap-2 text-sm">
